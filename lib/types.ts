@@ -51,6 +51,12 @@ export interface Order {
   return_request_date: string;
   condition: ItemCondition;
   damage_source: DamageSource;
+  /**
+   * Whether the customer supplied photo evidence of damage. Governs policy §2.5:
+   * in-transit damage *with* a photo → full refund; *without* → escalate for review.
+   * Absent/false means no photo on file.
+   */
+  photo_evidence?: boolean;
   reason_for_return: string;
   /** Count of prior refunds for this customer. Drives the abuse rule. */
   prior_refund_count: number;

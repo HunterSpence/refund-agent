@@ -174,6 +174,8 @@ In a production deployment I'd run voice through LiveKit, mirroring the producti
 
 Telemetry is gated on `LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY`. When both are absent the AI SDK `experimental_telemetry` block is a complete no-op: no spans emitted, no exporter needed, agent behavior is identical.
 
+**Privacy by default:** even when telemetry is enabled, `recordInputs` and `recordOutputs` are set to `false` (see `telemetryConfig()` in `orchestrate.ts`). Refund messages and CRM records are customer PII, so they are never exported verbatim to the telemetry sink. Auditability comes from the structured `TraceEvent` stream — decisions, policy clauses, and tool names, not raw content. Enabling full content capture should follow a data-handling / DPA review.
+
 To activate in production, add two steps:
 
 1. Set `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` in `.env.local` (or server environment).

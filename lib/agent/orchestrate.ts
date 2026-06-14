@@ -78,6 +78,28 @@ export function isTelemetryEnabled(): boolean {
   return Boolean(process.env.LANGFUSE_PUBLIC_KEY && process.env.LANGFUSE_SECRET_KEY);
 }
 
+/**
+ * Telemetry settings for the agent loop.
+ *
+ * Privacy-by-default: even when telemetry is enabled, we explicitly DO NOT record
+ * verbatim inputs/outputs (raw customer messages, CRM tool results) to the
+ * telemetry sink. Refund requests and CRM records are customer PII; exporting them
+ * to a third-party observability project (Langfuse) would need a data-handling /
+ * DPA review first. Auditability is preserved by the structured TraceEvent stream
+ * (emit()), which carries decisions, policy clauses, and tool names — not raw
+ * message content. Flip recordInputs/recordOutputs to true ONLY after that review.
+ */
+export function telemetryConfig(sessionId: string) {
+  return {
+    isEnabled: isTelemetryEnabled(),
+    functionId: "refund-agent-orchestrate",
+    metadata: { sessionId },
+    // Do NOT export raw prompts/responses (customer PII) to the telemetry sink.
+    recordInputs: false,
+    recordOutputs: false,
+  };
+}
+
 // ─── Public types ─────────────────────────────────────────────────────────────
 
 /**
@@ -276,14 +298,11 @@ export function orchestrate(opts: OrchestrateOptions) {
     prepareStep,
 
     // Langfuse-ready OTel telemetry — complete no-op when creds are absent.
-    // isEnabled reads the env gate at call time so tests can toggle it freely.
+    // Privacy-by-default: recordInputs/recordOutputs are off (see telemetryConfig),
+    // so no verbatim customer messages or CRM results reach the telemetry sink.
     // Activation: set LANGFUSE_PUBLIC_KEY + LANGFUSE_SECRET_KEY and register a
     // LangfuseExporter in instrumentation.ts (see README § Observability).
-    experimental_telemetry: {
-      isEnabled: isTelemetryEnabled(),
-      functionId: "refund-agent-orchestrate",
-      metadata: { sessionId },
-    },
+    experimental_telemetry: telemetryConfig(sessionId),
 
     // onStepFinish — fires after each complete step (tool call + result pair).
     // This is where we translate AI SDK step data into TraceEvents.

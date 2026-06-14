@@ -6,7 +6,7 @@ A policy-governed e-commerce refund agent that auto-resolves customer refund req
 [![eval 23/23 pass³ 100%](https://img.shields.io/badge/eval-23%2F23_%E2%9C%93_pass%C2%B3_100%25-22c55e)](./lib/eval/results.json)
 [![Deploy to Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/HunterSpence/refund-agent&env=ANTHROPIC_API_KEY&envDescription=Anthropic%20API%20key%20for%20the%20refund%20agent)
 
-**Live demo:** `<url>`
+**Live demo:** https://refund-agent-five.vercel.app
 **Loom walkthrough:** `<url>`
 
 ---

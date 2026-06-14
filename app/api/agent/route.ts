@@ -178,17 +178,68 @@ export function buildAgentStream(
 
 // ─── POST handler ─────────────────────────────────────────────────────────────
 
+// ─── Request validation constants ─────────────────────────────────────────────
+
+/** Maximum number of messages accepted per request. */
+const MAX_MESSAGES = 50;
+
+/**
+ * Maximum character length for any single user-message text part.
+ *
+ * The 8k cap keeps the system prompt + conversation history comfortably within
+ * typical model context windows while preventing abuse through oversized payloads.
+ */
+const MAX_USER_TEXT_CHARS = 8_000;
+
+// ─── POST handler ─────────────────────────────────────────────────────────────
+
 /**
  * Next.js App Router POST handler for /api/agent.
  *
- * Parses the request body, delegates to buildAgentStream(), and wraps the
- * stream in a Server-Sent Events Response via createUIMessageStreamResponse().
+ * Parses and validates the request body, delegates to buildAgentStream(), and
+ * wraps the stream in a Server-Sent Events Response via createUIMessageStreamResponse().
+ *
+ * Validation (returns 400 Bad Request on failure):
+ *   - Body must be valid JSON.
+ *   - `messages` must be a non-empty array of ≤ 50 entries.
+ *   - Each user-message text part must be ≤ 8,000 characters.
  *
  * The client (useChat) reads the SSE stream and renders chunks in real time.
  * data-trace chunks are collected by the reasoning dashboard component.
  */
 export async function POST(req: Request): Promise<Response> {
-  const { messages } = (await req.json()) as { messages: RefundUIMessage[] };
+  // ── Parse body — catch malformed JSON ───────────────────────────────────────
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return Response.json({ error: "bad_request" }, { status: 400 });
+  }
+
+  // ── Validate `messages` field ───────────────────────────────────────────────
+  const raw = body as Record<string, unknown>;
+
+  if (!Array.isArray(raw.messages) || raw.messages.length === 0) {
+    return Response.json({ error: "bad_request" }, { status: 400 });
+  }
+
+  if (raw.messages.length > MAX_MESSAGES) {
+    return Response.json({ error: "bad_request" }, { status: 400 });
+  }
+
+  // ── Validate per-message text length ────────────────────────────────────────
+  const messages = raw.messages as RefundUIMessage[];
+
+  for (const msg of messages) {
+    if (msg.role !== "user") continue;
+    for (const part of msg.parts) {
+      if (part.type === "text" && part.text.length > MAX_USER_TEXT_CHARS) {
+        return Response.json({ error: "bad_request" }, { status: 400 });
+      }
+    }
+  }
+
+  // ── All checks passed — build and return the agent stream ───────────────────
   const stream = buildAgentStream(messages);
   return createUIMessageStreamResponse({ stream });
 }

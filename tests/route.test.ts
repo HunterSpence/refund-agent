@@ -204,7 +204,75 @@ describe("/api/agent route — buildAgentStream + POST", () => {
     expect(decisionEvent?.data.decision).toBe("approve");
   });
 
-  // ─── Test 3: POST integration (injection path — keyless) ─────────────────────
+  // ─── Test 3: POST — malformed JSON body → 400 ────────────────────────────────
+  //
+  // MUST-2: req.json() parse errors must return 400 Bad Request, not 500.
+  it("POST: returns 400 when request body is not valid JSON", async () => {
+    const req = new Request("http://localhost/api/agent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "not-valid-json{{{",
+    });
+
+    const response = await POST(req);
+    expect(response.status).toBe(400);
+    const body = await response.json() as { error: string };
+    expect(body.error).toBe("bad_request");
+  });
+
+  // ─── Test 4: POST — missing messages field → 400 ──────────────────────────────
+  it("POST: returns 400 when messages field is missing", async () => {
+    const req = new Request("http://localhost/api/agent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ foo: "bar" }),
+    });
+
+    const response = await POST(req);
+    expect(response.status).toBe(400);
+    const body = await response.json() as { error: string };
+    expect(body.error).toBe("bad_request");
+  });
+
+  // ─── Test 5: POST — empty messages array → 400 ──────────────────────────────
+  it("POST: returns 400 when messages array is empty", async () => {
+    const req = new Request("http://localhost/api/agent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: [] }),
+    });
+
+    const response = await POST(req);
+    expect(response.status).toBe(400);
+  });
+
+  // ─── Test 6: POST — too many messages → 400 ────────────────────────────────
+  it("POST: returns 400 when messages array exceeds the 50-message cap", async () => {
+    const messages = Array.from({ length: 51 }, (_, i) => userMsg(`message ${i}`));
+    const req = new Request("http://localhost/api/agent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages }),
+    });
+
+    const response = await POST(req);
+    expect(response.status).toBe(400);
+  });
+
+  // ─── Test 7: POST — oversized user text → 400 ────────────────────────────────
+  it("POST: returns 400 when a user message text part exceeds 8000 chars", async () => {
+    const oversized = userMsg("x".repeat(8001));
+    const req = new Request("http://localhost/api/agent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: [oversized] }),
+    });
+
+    const response = await POST(req);
+    expect(response.status).toBe(400);
+  });
+
+  // ─── Test 9: POST integration (injection path — keyless) ─────────────────────
   //
   // Call POST() with an injecting message body and assert:
   //   - it returns a Response (not throws)

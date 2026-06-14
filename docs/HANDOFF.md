@@ -33,8 +33,8 @@ Loopp lists voice as 1 of 5 verticals (not voice-first), so it's a **breadth sig
 Next.js 15, TS strict, **`ai@^6` + `@ai-sdk/react@^6` + `@ai-sdk/anthropic`** (swappable `@ai-sdk/openai`), Zod, Tailwind + shadcn/ui (+ `assistant-ui` Approval Card), `@deepgram/sdk` v3 + `@cartesia/cartesia-js` v3, Langfuse (hosted free) + `@ai-sdk/devtools`, Vitest, pnpm.
 - `tool({ inputSchema })` NOT `parameters`. `stopWhen:[hasToolCall('decide_refund'), stepCountIs(8)]` NOT `maxSteps`. Tool order via `prepareStep`→`activeTools`(+`toolChoice`). Route → `toUIMessageStreamResponse()` NOT `toDataStreamResponse()`, **`runtime='nodejs'` NOT edge**. Client `message.parts[]`; tool parts `type:'tool-{name}'` w/ `state`. Tests: `MockLanguageModelV3` from `ai/test` + `simulateReadableStream` (assert tool ORDER). `useChat` from `@ai-sdk/react`.
 
-## 6. Credentials (ask Hunter; NEVER commit)
-- **`ANTHROPIC_API_KEY`** — Hunter creates a **NEW, capped throwaway key** (Anthropic console, $10–20 spend cap), **NOT his VantaWeb prod key**. Goes in `.env.local` (gitignored) + Vercel server env only. `.env.example` has a placeholder; reviewers use their own. **Needed only for** manual UI checks, voice, real-model eval, and deploy. **Phases 1–3 + 5 (mocked) + all unit tests run KEYLESS** — start there immediately.
+## 6. Credentials (NEVER commit — `.env.local` is gitignored)
+- **`ANTHROPIC_API_KEY` — ✅ ALREADY IN PLACE & VERIFIED LIVE (2026-06-14, HTTP 200).** A capped ~$5 throwaway TEST key sits in `C:\Users\hspen\refund-agent\.env.local` (gitignored) with `LLM_PROVIDER=anthropic`, and is vaulted (`~/.env.secrets` → `REFUND_AGENT_ANTHROPIC_KEY`, masked in `~/.secrets/INDEX.md`). **Don't print it; don't commit it; revoke after Loopp review.** For Vercel deploy, set it as a server-side env var. `.env.example` (created during scaffold) carries only a placeholder; reviewers use their own key. Phases 1–3 + mocked 5 + all unit tests also run KEYLESS.
 - Deepgram + Cartesia keys: Hunter has them (VantaWeb prod) — only for Phase 6 voice.
 - Langfuse: hosted free-tier keys.
 

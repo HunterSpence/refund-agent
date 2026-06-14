@@ -37,6 +37,7 @@ import type { TraceEvent } from "@/lib/types";
 import { SEED_ORDERS } from "@/lib/crm/data";
 import { ChatWindow } from "@/components/ChatWindow";
 import { ReasoningPanel } from "@/components/ReasoningPanel";
+import { VoiceButton } from "@/components/VoiceButton";
 
 // ─── Logo mark ───────────────────────────────────────────────────────────────
 
@@ -170,6 +171,21 @@ export default function HomePage() {
     return undefined;
   }, [traces]);
 
+  // Derive the latest assistant message text for TTS (joined text parts)
+  const latestAssistantText = useMemo<string | undefined>(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (msg.role === "assistant") {
+        const text = msg.parts
+          .filter((p): p is { type: "text"; text: string } => p.type === "text")
+          .map((p) => p.text)
+          .join("");
+        if (text.trim()) return text.trim();
+      }
+    }
+    return undefined;
+  }, [messages]);
+
   const isLoading = status === "submitted" || status === "streaming";
 
   function handleSend(text: string) {
@@ -197,6 +213,13 @@ export default function HomePage() {
 
         {/* Scenario picker */}
         <ScenarioPicker onSelect={handleSend} disabled={isLoading} />
+
+        {/* Voice input toggle — Web Speech default, keyless */}
+        <VoiceButton
+          onTranscript={handleSend}
+          speakText={latestAssistantText}
+          disabled={isLoading}
+        />
 
         {/* Reset */}
         <button

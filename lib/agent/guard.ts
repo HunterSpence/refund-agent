@@ -177,11 +177,66 @@ const INJECTION_RULES: InjectionRule[] = [
  * @param text  Raw customer message to scan.
  * @returns     SanitizeResult — caller checks `.safe` before calling the LLM.
  */
+/**
+ * Fold a string for injection-detection: normalize Unicode, strip zero-width
+ * characters, then map common leetspeak / homoglyph substitutions to their
+ * ASCII equivalents so that `ign0re` and `j41lbr34k` match the same regexes
+ * as their plain-ASCII forms.
+ *
+ * IMPORTANT: this function is used only for PATTERN MATCHING — the returned
+ * string is never stored, displayed, or returned to the caller. The caller's
+ * `text` argument (the original, un-folded message) is what appears in
+ * SanitizeResult.reason and what the agent loop stores in history.
+ *
+ * Steps:
+ *   1. NFKC normalization — collapses Cyrillic / full-width homoglyphs and
+ *      compatibility characters to their canonical ASCII/Latin equivalents.
+ *   2. Zero-width character stripping — removes invisible Unicode spacers
+ *      that adversaries insert to break keyword detection.
+ *   3. Common leetspeak fold — maps the most-used digit and symbol substitutions
+ *      that appear in adversarial jailbreak prompts.
+ */
+function foldForDetection(text: string): string {
+  // Step 1: NFKC normalization — collapses Unicode compatibility variants to
+  // their canonical ASCII/Latin equivalents. Examples: full-width ｉ (U+FF49) → i,
+  // fullwidth Ａ → A, ligatures like ﬁ → fi. Covers the most common homoglyph
+  // classes used in jailbreak payloads. Note: Cyrillic homoglyphs (е, і, etc.)
+  // are semantically distinct codepoints and are NOT mapped by NFKC — they would
+  // require an explicit transliteration table (out of scope for this harness).
+  let folded = text.normalize("NFKC");
+
+  // Step 2: Strip zero-width characters:
+  //   U+200B zero-width space, U+200C zero-width non-joiner,
+  //   U+200D zero-width joiner, U+FEFF BOM / zero-width no-break space.
+  // Adversaries insert these invisibly to break keyword pattern matching.
+  // Using \u escapes for encoding safety; the `u` flag enables Unicode mode.
+  folded = folded.replace(/[​‌‍﻿]/gu, "");
+
+  // Step 3: Leetspeak / symbol substitution fold (detection copy only)
+  // Covers the digit/symbol variants most commonly seen in jailbreak prompts.
+  folded = folded
+    .replace(/0/g, "o")  // 0 → o  (ign0re → ignore)
+    .replace(/1/g, "i")  // 1 → i  (1nstruct → instruct)
+    .replace(/3/g, "e")  // 3 → e  (j41lbr34k → jailbreak)
+    .replace(/4/g, "a")  // 4 → a  (j4ilbreak → jailbreak)
+    .replace(/5/g, "s")  // 5 → s  (5ystem → system)
+    .replace(/7/g, "t")  // 7 → t  (instruc7ions → instructions)
+    .replace(/@/g, "a")  // @ → a  (@dmin → admin)
+    .replace(/\$/g, "s"); // $ → s  ($ystem → system)
+
+  return folded;
+}
+
 export function sanitizeInput(text: string): SanitizeResult {
   const matched: string[] = [];
 
+  // Build the detection copy: normalized + zero-width stripped + leetspeak folded.
+  // Regex rules run against this copy; the original text is preserved for all
+  // other purposes (tracing, history, display).
+  const detectionText = foldForDetection(text);
+
   for (const rule of INJECTION_RULES) {
-    const hit = rule.patterns.some((pattern) => pattern.test(text));
+    const hit = rule.patterns.some((pattern) => pattern.test(detectionText));
     if (hit) {
       matched.push(rule.label);
     }

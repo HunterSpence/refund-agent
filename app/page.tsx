@@ -11,7 +11,10 @@
  *   • Product name + logo mark
  *   • Subtitle + policy version pill
  *   • Scenario picker (15 SEED_ORDERS)
+ *   • VoiceButton
  *   • Reset button
+ *
+ * All header controls: consistent 32px (h-8) height, shared hover/focus rings.
  *
  * AI SDK v6 wiring:
  *   import { useChat }              from "@ai-sdk/react"
@@ -44,7 +47,7 @@ import { VoiceButton } from "@/components/VoiceButton";
 function LogoMark() {
   return (
     <div className="flex items-center gap-2.5">
-      {/* Icon: shield + checkmark */}
+      {/* Icon: shield + checkmark — consistent violet accent */}
       <div className="w-7 h-7 rounded-lg bg-violet-600/20 border border-violet-600/40 flex items-center justify-center flex-shrink-0">
         <svg
           viewBox="0 0 16 16"
@@ -106,27 +109,39 @@ function ScenarioPicker({ onSelect, disabled }: ScenarioPickerProps) {
   }
 
   return (
-    <select
-      onChange={handleChange}
-      disabled={disabled}
-      defaultValue=""
-      aria-label="Load a scenario"
-      className={[
-        "text-xs font-mono rounded-lg border bg-zinc-900 px-3 py-1.5 h-8",
-        "text-zinc-300 border-zinc-700 focus:outline-none focus:border-violet-600",
-        "disabled:opacity-50 disabled:cursor-not-allowed",
-        "max-w-[260px] truncate",
-      ].join(" ")}
-    >
-      <option value="" disabled className="text-zinc-600">
-        Load scenario…
-      </option>
-      {SEED_ORDERS.map((order) => (
-        <option key={order.order_id} value={order.order_id} className="bg-zinc-900">
-          {order.name} — {order.item} (${order.price.toFixed(2)})
+    /* Custom-styled select: consistent h-8, custom chevron via appearance-none + SVG bg */
+    <div className="relative flex-shrink-0">
+      <select
+        onChange={handleChange}
+        disabled={disabled}
+        defaultValue=""
+        aria-label="Load a scenario"
+        className={[
+          "appearance-none text-xs font-mono rounded-lg border bg-zinc-900",
+          "pl-3 pr-8 h-8",
+          "text-zinc-300 border-zinc-700",
+          "focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950 focus-visible:border-violet-600",
+          "disabled:opacity-50 disabled:cursor-not-allowed",
+          "max-w-[240px] truncate",
+          "transition-colors hover:border-zinc-600",
+        ].join(" ")}
+      >
+        <option value="" disabled className="text-zinc-500 bg-zinc-950">
+          Load scenario…
         </option>
-      ))}
-    </select>
+        {SEED_ORDERS.map((order) => (
+          <option key={order.order_id} value={order.order_id} className="bg-zinc-900 text-zinc-200">
+            {order.name} — {order.item} (${order.price.toFixed(2)})
+          </option>
+        ))}
+      </select>
+      {/* Custom chevron icon */}
+      <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500" aria-hidden>
+        <svg viewBox="0 0 10 6" fill="none" className="w-2.5 h-1.5">
+          <path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </span>
+    </div>
   );
 }
 
@@ -200,7 +215,7 @@ export default function HomePage() {
   return (
     <div className="flex flex-col h-full min-h-0 bg-[var(--color-surface-base)]">
       {/* ─── Header ─────────────────────────────────────────────────────────── */}
-      <header className="flex-shrink-0 flex items-center gap-4 px-5 py-3 border-b border-zinc-800 bg-zinc-950/80 backdrop-blur-sm z-10">
+      <header className="flex-shrink-0 flex items-center gap-3 px-5 py-0 h-14 border-b border-zinc-800 bg-zinc-950/90 backdrop-blur-sm z-10">
         <LogoMark />
 
         {/* Policy version pill */}
@@ -211,7 +226,7 @@ export default function HomePage() {
         {/* Spacer */}
         <div className="flex-1" />
 
-        {/* Scenario picker */}
+        {/* Scenario picker — consistent h-8, custom chevron */}
         <ScenarioPicker onSelect={handleSend} disabled={isLoading} />
 
         {/* Voice input toggle — Web Speech default, keyless */}
@@ -221,13 +236,14 @@ export default function HomePage() {
           disabled={isLoading}
         />
 
-        {/* Reset */}
+        {/* Reset — consistent h-8 height, focus ring */}
         <button
           onClick={handleReset}
           disabled={isLoading || messages.length === 0}
           className={[
-            "text-xs font-mono px-3 py-1.5 rounded-lg border transition-colors h-8",
+            "text-xs font-mono px-3 h-8 rounded-lg border transition-colors flex-shrink-0",
             "border-zinc-700 text-zinc-400 hover:border-zinc-600 hover:text-zinc-300",
+            "focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950",
             "disabled:opacity-40 disabled:cursor-not-allowed",
           ].join(" ")}
         >
@@ -248,7 +264,7 @@ export default function HomePage() {
               Conversation
             </span>
             {messages.filter((m) => m.role === "user").length > 0 && (
-              <span className="ml-auto text-[10px] font-mono text-zinc-600">
+              <span className="ml-auto text-[10px] font-mono text-zinc-500 tabular-nums">
                 {messages.filter((m) => m.role === "user").length} turn
                 {messages.filter((m) => m.role === "user").length !== 1 ? "s" : ""}
               </span>

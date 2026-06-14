@@ -4,15 +4,17 @@
  * ReasoningPanel — the live reasoning dashboard (star of the show).
  *
  * Receives the flat list of all TraceEvents (across all messages, in order)
- * and renders a vertical timeline. Each event type has a distinct visual
- * treatment — tool calls, tool results, policy decisions, and guardrail
- * violations are all immediately recognizable at a glance.
+ * and renders a connected-node vertical timeline. Each event has a circular
+ * node on the rail, colored by type. Cards sit to the right of their node.
  *
- * New rows animate in via CSS traceIn keyframes (defined in globals.css).
- * Respects prefers-reduced-motion.
+ * Rail architecture:
+ *   - A 1px continuous vertical line (zinc-800) runs down the left.
+ *   - Each event has a ~10px circular node centered on the rail, colored by type.
+ *   - The last node when streaming pulses with a ping ring.
+ *   - Nodes use nodePop keyframe for crisp entry; cards use traceIn.
+ *   - No idx-scaled animation delay — events arrive naturally staggered.
  *
- * JSON rendering: a lightweight recursive colorizer — no external syntax
- * highlighting library needed. Colors match the .json-* classes in globals.css.
+ * JSON rendering: a lightweight recursive colorizer. Colors match .json-* in globals.css.
  */
 
 import { useEffect, useRef } from "react";
@@ -176,7 +178,8 @@ function ConfidenceMeter({ confidence }: { confidence: number }) {
         <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-wide">
           Confidence
         </span>
-        <span className={["text-xs font-mono font-bold", textColor].join(" ")}>
+        {/* tabular-nums: prevents number jitter as value updates */}
+        <span className={["text-xs font-mono font-bold tabular-nums", textColor].join(" ")}>
           {pct}%
         </span>
       </div>
@@ -199,8 +202,8 @@ function ConfidenceMeter({ confidence }: { confidence: number }) {
 
 function OutcomeCard({ outcome }: { outcome: RefundOutcome }) {
   return (
-    <div className="mt-2 rounded-lg border border-zinc-700 bg-zinc-900/50 p-3 space-y-2">
-      {/* Header row */}
+    <div className="mt-2 rounded-lg border border-zinc-700 bg-zinc-900/50 p-3.5 space-y-3">
+      {/* Header row: badge + override pill + policy version */}
       <div className="flex items-center gap-2 flex-wrap">
         <DecisionBadge decision={outcome.decision} size="sm" />
         {outcome.overridden && (
@@ -208,25 +211,27 @@ function OutcomeCard({ outcome }: { outcome: RefundOutcome }) {
             OVERRIDDEN BY POLICY
           </span>
         )}
-        <span className="text-[10px] font-mono text-zinc-500 ml-auto">
+        <span className="text-[10px] font-mono text-zinc-500 ml-auto tabular-nums">
           policy v{outcome.policy_version}
         </span>
       </div>
 
-      {/* Money */}
-      <div className="flex gap-4">
+      {/* Money — the verdict climax. Large, confident, tabular-nums to prevent jitter. */}
+      <div className="flex items-end gap-5">
         <div>
-          <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-wide">Refund</p>
-          <p className="text-base font-mono font-bold text-emerald-400">
+          <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-wide mb-0.5">
+            Refund
+          </p>
+          <p className="text-3xl font-mono font-bold tabular-nums text-emerald-400 leading-none">
             ${outcome.amount.toFixed(2)}
           </p>
         </div>
         {outcome.restocking_fee > 0 && (
-          <div>
-            <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-wide">
+          <div className="pb-0.5">
+            <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-wide mb-0.5">
               Restocking fee
             </p>
-            <p className="text-base font-mono font-bold text-rose-400">
+            <p className="text-lg font-mono font-bold tabular-nums text-rose-400 leading-none">
               −${outcome.restocking_fee.toFixed(2)}
             </p>
           </div>
@@ -252,12 +257,83 @@ function OutcomeCard({ outcome }: { outcome: RefundOutcome }) {
   );
 }
 
+// ─── Rail node — the colored circle on the timeline rail ─────────────────────
+
+/**
+ * Node color map by event type. The node sits absolutely centered on the
+ * rail line; the card body lives to its right.
+ */
+const NODE_COLOR: Record<
+  string,
+  { solid: string; ring: string }
+> = {
+  tool_call_lookup:       { solid: "bg-sky-400",     ring: "ring-sky-500/30" },
+  tool_call_policy:       { solid: "bg-purple-400",  ring: "ring-purple-500/30" },
+  tool_call_decision:     { solid: "bg-emerald-400", ring: "ring-emerald-500/30" },
+  tool_result_lookup:     { solid: "bg-sky-600",     ring: "ring-sky-600/20" },
+  tool_result_policy:     { solid: "bg-purple-600",  ring: "ring-purple-600/20" },
+  tool_result_decision:   { solid: "bg-emerald-600", ring: "ring-emerald-600/20" },
+  policy_violation:       { solid: "bg-red-400",     ring: "ring-red-500/30" },
+  decision:               { solid: "bg-emerald-400", ring: "ring-emerald-500/30" },
+  default:                { solid: "bg-zinc-600",    ring: "ring-zinc-600/20" },
+};
+
+function getNodeColor(event: TraceEvent): { solid: string; ring: string } {
+  if (event.type === "policy_violation") return NODE_COLOR.policy_violation;
+  if (event.type === "decision")         return NODE_COLOR.decision;
+  if (event.type === "tool_call") {
+    if (event.data.tool_name === "crm_lookup")   return NODE_COLOR.tool_call_lookup;
+    if (event.data.tool_name === "policy_check") return NODE_COLOR.tool_call_policy;
+    if (event.data.tool_name === "decide_refund") return NODE_COLOR.tool_call_decision;
+  }
+  if (event.type === "tool_result") {
+    if (event.data.tool_name === "crm_lookup")   return NODE_COLOR.tool_result_lookup;
+    if (event.data.tool_name === "policy_check") return NODE_COLOR.tool_result_policy;
+    if (event.data.tool_name === "decide_refund") return NODE_COLOR.tool_result_decision;
+  }
+  return NODE_COLOR.default;
+}
+
+interface RailNodeProps {
+  event: TraceEvent;
+  isLive: boolean;
+}
+
+function RailNode({ event, isLive }: RailNodeProps) {
+  const { solid, ring } = getNodeColor(event);
+  return (
+    /* Node centered on the rail (left-0, translateX(-50%) centers the 10px dot on the 1px line) */
+    <div
+      aria-hidden
+      className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 w-2.5 h-2.5 z-10 animate-node-pop"
+    >
+      {/* Ping ring — only on the last (live/streaming) node */}
+      {isLive && (
+        <span
+          className={[
+            "absolute inset-0 rounded-full animate-node-ping",
+            solid,
+          ].join(" ")}
+        />
+      )}
+      {/* Solid node with subtle ring */}
+      <span
+        className={[
+          "block w-full h-full rounded-full ring-2",
+          solid,
+          ring,
+        ].join(" ")}
+      />
+    </div>
+  );
+}
+
 // ─── Single trace event row ───────────────────────────────────────────────────
 
-function TraceRow({ event, idx }: { event: TraceEvent; idx: number }) {
+function TraceRow({ event, isLive }: { event: TraceEvent; isLive: boolean }) {
   const { type, data, timestamp, step } = event;
 
-  // Format timestamp for compact display
+  // Format timestamp for compact display — readable contrast (zinc-500 min)
   const time = new Date(timestamp).toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
@@ -277,29 +353,31 @@ function TraceRow({ event, idx }: { event: TraceEvent; idx: number }) {
   // ── policy_violation — striking guardrail callout ────────────────────────
   if (type === "policy_violation") {
     return (
-      <div
-        className="animate-trace-in animate-guardrail relative rounded-xl border border-red-700/50 bg-red-950/20 p-3 ml-2"
-        style={{ animationDelay: `${idx * 30}ms` }}
-      >
-        {/* Left accent bar */}
-        <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-red-500 rounded-l-xl" />
-        <div className="flex items-start gap-2 pl-3">
-          <span className="text-red-400 text-base mt-0.5" aria-hidden>⛔</span>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-mono font-bold text-red-400 uppercase tracking-wider">
-                POLICY GUARDRAIL FIRED — held the line
-              </span>
-              <span className="text-[10px] font-mono text-zinc-600 ml-auto">{time}</span>
+      <div className="relative pl-5">
+        <RailNode event={event} isLive={isLive} />
+        <div className="animate-trace-in animate-guardrail rounded-xl border border-red-700/50 bg-red-950/20 p-3 hover:bg-red-950/30 hover:border-red-700/70 transition-colors">
+          <div className="flex items-start gap-2">
+            {/* SVG shield-x icon — no emoji */}
+            <svg viewBox="0 0 16 16" fill="none" className="w-3.5 h-3.5 text-red-400 flex-shrink-0 mt-0.5" aria-hidden>
+              <path d="M8 1.5L13.5 3.5V8C13.5 11 11 13.5 8 14.5C5 13.5 2.5 11 2.5 8V3.5L8 1.5Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+              <path d="M6 6l4 4M10 6l-4 4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+            </svg>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-mono font-bold text-red-400 uppercase tracking-wider">
+                  POLICY GUARDRAIL FIRED — held the line
+                </span>
+                <span className="text-[10px] font-mono text-zinc-500 ml-auto tabular-nums">{time}</span>
+              </div>
+              {data.error_message && (
+                <p className="text-xs text-red-300/90 mt-1 leading-relaxed">
+                  {data.error_message}
+                </p>
+              )}
+              {data.violated_clauses && data.violated_clauses.length > 0 && (
+                <ClauseChips clauses={data.violated_clauses} />
+              )}
             </div>
-            {data.error_message && (
-              <p className="text-xs text-red-300/90 mt-1 leading-relaxed">
-                {data.error_message}
-              </p>
-            )}
-            {data.violated_clauses && data.violated_clauses.length > 0 && (
-              <ClauseChips clauses={data.violated_clauses} />
-            )}
           </div>
         </div>
       </div>
@@ -309,19 +387,16 @@ function TraceRow({ event, idx }: { event: TraceEvent; idx: number }) {
   // ── decision — prominent banner ──────────────────────────────────────────
   if (type === "decision" && data.decision) {
     return (
-      <div
-        className="animate-trace-in relative rounded-xl border border-zinc-700 bg-zinc-900/70 p-3 ml-2"
-        style={{ animationDelay: `${idx * 30}ms` }}
-      >
-        <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-zinc-600 rounded-l-xl" />
-        <div className="pl-3">
-          <div className="flex items-center gap-2 flex-wrap">
+      <div className="relative pl-5">
+        <RailNode event={event} isLive={isLive} />
+        <div className="animate-trace-in rounded-xl border border-zinc-700 bg-zinc-900/70 p-3 hover:bg-zinc-900/90 hover:border-zinc-600 transition-colors">
+          <div className="flex items-center gap-2 flex-wrap mb-2">
             <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-wide">
               STEP {step} · FINAL OUTCOME
             </span>
-            <span className="text-[10px] font-mono text-zinc-600 ml-auto">{time}</span>
+            <span className="text-[10px] font-mono text-zinc-500 ml-auto tabular-nums">{time}</span>
           </div>
-          <div className="flex items-center gap-2 mt-1.5">
+          <div className="flex items-center gap-2">
             <DecisionBadge decision={data.decision} size="md" />
           </div>
           {data.violated_clauses && data.violated_clauses.length > 0 && (
@@ -335,22 +410,20 @@ function TraceRow({ event, idx }: { event: TraceEvent; idx: number }) {
   // ── tool_call ────────────────────────────────────────────────────────────
   if (type === "tool_call") {
     return (
-      <div
-        className="animate-trace-in relative rounded-xl border border-zinc-800 bg-zinc-900/50 p-3 ml-2"
-        style={{ animationDelay: `${idx * 30}ms` }}
-      >
-        {/* Rail dot */}
-        <div className="absolute -left-3 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-zinc-600" />
-        <div className="flex items-center gap-2 mb-2 flex-wrap">
-          <RoleBadge toolName={data.tool_name} />
-          <span className="text-xs font-mono text-zinc-400">{data.tool_name}</span>
-          <span className="text-[10px] font-mono text-zinc-600 ml-auto">{time}</span>
+      <div className="relative pl-5">
+        <RailNode event={event} isLive={isLive} />
+        <div className="animate-trace-in rounded-xl border border-zinc-800 bg-zinc-900/50 p-3 hover:bg-zinc-900/80 hover:border-zinc-700 transition-colors">
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
+            <RoleBadge toolName={data.tool_name} />
+            <span className="text-xs font-mono text-zinc-400">{data.tool_name}</span>
+            <span className="text-[10px] font-mono text-zinc-500 ml-auto tabular-nums">{time}</span>
+          </div>
+          {data.tool_args && (
+            <pre className="text-[11px] font-mono leading-relaxed text-zinc-400 overflow-x-auto bg-zinc-950/60 rounded-lg p-2 border border-zinc-800">
+              <ColorizedJson value={data.tool_args} />
+            </pre>
+          )}
         </div>
-        {data.tool_args && (
-          <pre className="text-[11px] font-mono leading-relaxed text-zinc-400 overflow-x-auto bg-zinc-950/60 rounded-lg p-2 border border-zinc-800">
-            <ColorizedJson value={data.tool_args} />
-          </pre>
-        )}
       </div>
     );
   }
@@ -358,52 +431,99 @@ function TraceRow({ event, idx }: { event: TraceEvent; idx: number }) {
   // ── tool_result ──────────────────────────────────────────────────────────
   if (type === "tool_result") {
     return (
-      <div
-        className="animate-trace-in relative rounded-xl border border-zinc-800 bg-zinc-900/30 p-3 ml-2"
-        style={{ animationDelay: `${idx * 30}ms` }}
-      >
-        <div className="absolute -left-3 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-zinc-700" />
-        <div className="flex items-center gap-2 mb-2 flex-wrap">
-          <span className="text-[10px] font-mono font-semibold text-zinc-500 uppercase tracking-wide">
-            Result
-          </span>
-          <RoleBadge toolName={data.tool_name} />
-          <span className="text-xs font-mono text-zinc-500">{data.tool_name}</span>
-          <span className="text-[10px] font-mono text-zinc-600 ml-auto">{time}</span>
-        </div>
+      <div className="relative pl-5">
+        <RailNode event={event} isLive={isLive} />
+        <div className="animate-trace-in rounded-xl border border-zinc-800 bg-zinc-900/30 p-3 hover:bg-zinc-900/60 hover:border-zinc-700 transition-colors">
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
+            <span className="text-[10px] font-mono font-semibold text-zinc-500 uppercase tracking-wide">
+              Result
+            </span>
+            <RoleBadge toolName={data.tool_name} />
+            <span className="text-xs font-mono text-zinc-500">{data.tool_name}</span>
+            <span className="text-[10px] font-mono text-zinc-500 ml-auto tabular-nums">{time}</span>
+          </div>
 
-        {/* Rich outcome card for decide_refund */}
-        {outcome ? (
-          <OutcomeCard outcome={outcome} />
-        ) : (
-          /* Compact JSON for other tools */
-          <pre className="text-[11px] font-mono leading-relaxed text-zinc-400 overflow-x-auto bg-zinc-950/60 rounded-lg p-2 border border-zinc-800">
-            <ColorizedJson value={data.tool_result} />
-          </pre>
-        )}
+          {/* Rich outcome card for decide_refund */}
+          {outcome ? (
+            <OutcomeCard outcome={outcome} />
+          ) : (
+            /* Compact JSON for other tools */
+            <pre className="text-[11px] font-mono leading-relaxed text-zinc-400 overflow-x-auto bg-zinc-950/60 rounded-lg p-2 border border-zinc-800">
+              <ColorizedJson value={data.tool_result} />
+            </pre>
+          )}
+        </div>
       </div>
     );
   }
 
   // ── thought / heartbeat / error — compact row ────────────────────────────
   return (
-    <div
-      className="animate-trace-in relative flex items-start gap-2 py-1.5 pl-2"
-      style={{ animationDelay: `${idx * 30}ms` }}
-    >
-      <div className="absolute -left-2 top-2.5 w-1 h-1 rounded-full bg-zinc-700 flex-shrink-0" />
-      <span
-        className={[
-          "text-[10px] font-mono uppercase tracking-wide flex-shrink-0 pt-0.5",
-          type === "error" ? "text-rose-500" : "text-zinc-600",
-        ].join(" ")}
+    <div className="relative pl-5 py-1">
+      <RailNode event={event} isLive={isLive} />
+      <div className="animate-trace-in flex items-start gap-2 py-1">
+        <span
+          className={[
+            "text-[10px] font-mono uppercase tracking-wide flex-shrink-0 pt-0.5",
+            type === "error" ? "text-rose-500" : "text-zinc-500",
+          ].join(" ")}
+        >
+          {type}
+        </span>
+        <span className="text-xs text-zinc-500 leading-relaxed">
+          {data.text ?? data.error_message ?? ""}
+        </span>
+        <span className="text-[10px] font-mono text-zinc-500 ml-auto flex-shrink-0 tabular-nums">{time}</span>
+      </div>
+    </div>
+  );
+}
+
+// ─── Empty state (refined — minimal node-rail glyph, no emoji) ───────────────
+
+function EmptyState() {
+  return (
+    <div className="flex flex-col items-center justify-center h-full text-center py-16 select-none">
+      {/* Minimal inline-SVG motif: a node rail with three nodes, echoing the timeline */}
+      <svg
+        viewBox="0 0 40 72"
+        fill="none"
+        className="w-10 h-[4.5rem] mb-5 opacity-20"
+        aria-hidden
       >
-        {type}
-      </span>
-      <span className="text-xs text-zinc-500 leading-relaxed">
-        {data.text ?? data.error_message ?? ""}
-      </span>
-      <span className="text-[10px] font-mono text-zinc-700 ml-auto flex-shrink-0">{time}</span>
+        {/* Vertical rail */}
+        <line x1="20" y1="0" x2="20" y2="72" stroke="#52525b" strokeWidth="1" />
+        {/* Node 1 — sky (lookup) */}
+        <circle cx="20" cy="12" r="4" fill="#38bdf8" fillOpacity="0.7" />
+        {/* Node 2 — purple (policy) */}
+        <circle cx="20" cy="36" r="4" fill="#c084fc" fillOpacity="0.7" />
+        {/* Node 3 — emerald (decision) */}
+        <circle cx="20" cy="60" r="4" fill="#34d399" fillOpacity="0.7" />
+      </svg>
+
+      <p className="text-sm font-semibold text-zinc-500 mb-2">
+        No reasoning yet
+      </p>
+      <p className="text-xs text-zinc-500 max-w-xs leading-relaxed">
+        Pick a scenario or ask about a refund — the agent&apos;s full reasoning
+        (lookup → policy → decision) streams here live.
+      </p>
+
+      {/* Subtle color key */}
+      <div className="mt-6 flex items-center gap-3 opacity-25">
+        <span className="flex items-center gap-1.5 text-[10px] font-mono text-zinc-500">
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-sky-400" />
+          lookup
+        </span>
+        <span className="flex items-center gap-1.5 text-[10px] font-mono text-zinc-500">
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-purple-400" />
+          policy
+        </span>
+        <span className="flex items-center gap-1.5 text-[10px] font-mono text-zinc-500">
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400" />
+          decision
+        </span>
+      </div>
     </div>
   );
 }
@@ -446,14 +566,17 @@ export function ReasoningPanel({ traces, itemName }: ReasoningPanelProps) {
     latestOutcome.decision === "approve" &&
     latestOutcome.amount > 500;
 
+  // Index of the last trace — that node gets the live ping ring while streaming
+  const lastIdx = traces.length - 1;
+
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* Panel header */}
       <div className="flex-shrink-0 px-5 py-3 border-b border-zinc-800 flex items-center gap-2">
-        {/* Animated "live" dot */}
+        {/* Animated "live" dot — only while there are events */}
         {traces.length > 0 && (
           <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-60" />
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-50" />
             <span className="relative inline-flex rounded-full h-2 w-2 bg-violet-500" />
           </span>
         )}
@@ -461,7 +584,7 @@ export function ReasoningPanel({ traces, itemName }: ReasoningPanelProps) {
           Reasoning Timeline
         </span>
         {traces.length > 0 && (
-          <span className="ml-auto text-[10px] font-mono text-zinc-600">
+          <span className="ml-auto text-[10px] font-mono text-zinc-500 tabular-nums">
             {traces.length} event{traces.length !== 1 ? "s" : ""}
           </span>
         )}
@@ -470,42 +593,27 @@ export function ReasoningPanel({ traces, itemName }: ReasoningPanelProps) {
       {/* Scrollable timeline */}
       <div className="flex-1 overflow-y-auto px-5 py-4">
         {traces.length === 0 ? (
-          /* Empty state */
-          <div className="flex flex-col items-center justify-center h-full text-center py-16 select-none">
-            {/* Decorative icon cluster */}
-            <div className="flex items-center gap-3 mb-5 opacity-30">
-              <span className="text-2xl">🔍</span>
-              <span className="text-zinc-600 text-lg">→</span>
-              <span className="text-2xl">📋</span>
-              <span className="text-zinc-600 text-lg">→</span>
-              <span className="text-2xl">✓</span>
-            </div>
-            <p className="text-sm font-semibold text-zinc-500 mb-2">
-              No reasoning yet
-            </p>
-            <p className="text-xs text-zinc-600 max-w-xs leading-relaxed">
-              Pick a scenario or ask about a refund — the agent&apos;s full reasoning
-              (lookup → policy → decision) streams here live.
-            </p>
-            <div className="mt-6 flex gap-2 opacity-20">
-              <span className="h-1 w-8 rounded-full bg-sky-500" />
-              <span className="h-1 w-8 rounded-full bg-purple-500" />
-              <span className="h-1 w-8 rounded-full bg-emerald-500" />
-            </div>
-          </div>
+          <EmptyState />
         ) : (
-          /* Timeline */
+          /* Connected-node timeline */
           <div className="relative">
-            {/* Vertical rail line */}
+            {/*
+             * The continuous 1px vertical rail.
+             * Positioned at left-2.5 (10px) so the rail runs through the
+             * center of the 10px nodes (node: left-0 centered via translate,
+             * so its center is at left: 0 + 5px offset from the pl-5 context).
+             * Cards sit in pl-5 containers, so they start 20px from the panel edge.
+             */}
             <div
-              className="absolute left-0 top-0 bottom-0 w-px bg-zinc-800"
+              className="absolute top-0 bottom-0 bg-zinc-800"
+              style={{ left: "10px", width: "1px" }}
               aria-hidden
             />
 
-            <div className="space-y-2 pl-4">
+            <div className="space-y-2">
               {/* HITL approval card pinned above timeline if needed */}
               {needsApproval && latestOutcome && (
-                <div className="mb-4">
+                <div className="mb-4 pl-5">
                   <ApprovalCard
                     outcome={latestOutcome}
                     itemName={itemName ?? "item"}
@@ -514,7 +622,11 @@ export function ReasoningPanel({ traces, itemName }: ReasoningPanelProps) {
               )}
 
               {traces.map((event, idx) => (
-                <TraceRow key={event.id} event={event} idx={idx} />
+                <TraceRow
+                  key={event.id}
+                  event={event}
+                  isLive={idx === lastIdx}
+                />
               ))}
             </div>
           </div>

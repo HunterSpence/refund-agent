@@ -95,15 +95,29 @@ body {
 
 /* ─── Animations ────────────────────────────────────────────────────────────── */
 
-/* Trace rows fade + slide in from below */
+/* Trace rows: clean fade + rise, ease-out-quart feel.
+   No growing idx delay — rows animate in immediately on mount.
+   The natural stagger comes from the model streaming events ~1-2s apart. */
 @keyframes traceIn {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(8px);
   }
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+/* Timeline node pop: scale in from slightly below center */
+@keyframes nodePop {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) scale(0.5);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) scale(1);
   }
 }
 
@@ -131,7 +145,7 @@ body {
   }
 }
 
-/* Guardrail pulse */
+/* Guardrail pulse — red shadow ring */
 @keyframes guardrailPulse {
   0%, 100% {
     box-shadow: 0 0 0 0 rgba(248, 113, 113, 0.15);
@@ -151,6 +165,14 @@ body {
   to { transform: rotate(360deg); }
 }
 
+/* Node ping ring — for the currently-streaming node */
+@keyframes nodePing {
+  75%, 100% {
+    transform: translateX(-50%) scale(2);
+    opacity: 0;
+  }
+}
+
 /* Reduced motion: collapse all animations */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
@@ -162,8 +184,13 @@ body {
 
 /* ─── Utility classes (not in Tailwind core) ──────────────────────────────── */
 
+/* No idx-scaled delay — immediate mount animation, snappy ≤250ms ease-out */
 .animate-trace-in {
-  animation: traceIn 0.25s ease-out both;
+  animation: traceIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-node-pop {
+  animation: nodePop 0.18s cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
 
 .animate-scale-in {
@@ -186,6 +213,11 @@ body {
 
 .spinner {
   animation: spin 0.75s linear infinite;
+}
+
+/* Node ping — for the live/streaming last node */
+.animate-node-ping {
+  animation: nodePing 1.2s cubic-bezier(0, 0, 0.2, 1) infinite;
 }
 
 /* ─── JSON syntax coloring (custom, no external lib) ──────────────────────── */

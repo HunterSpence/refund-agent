@@ -85,6 +85,8 @@ Social engineering (legal threats, "I am the CEO") is deliberately not blocked b
 
 The CI gate (`tests/eval.test.ts`) hard-asserts all four headline metrics. A separate live runner (`lib/eval/run-live.ts`, gated on `RUN_LIVE_EVAL=1`) validates the real model and writes `lib/eval/results-live.json`.
 
+**What "23/23" measures:** The deterministic runner tests the policy spine (`evaluatePolicy`, `applyRefundPolicy`, `sanitizeInput`) directly — no LLM call is made. The 23/23 figure is a claim about oracle correctness, not end-to-end model accuracy. The agentic loop (model → tools → oracle) is proven separately by the mock-model tests in `tests/orchestrate.test.ts`, which assert the mandatory tool sequence, the override behaviour, and multi-turn hold-the-line — using `MockLanguageModelV3` from the AI SDK test helpers.
+
 ### Configurable policy primitive
 
 The policy is a plain `RefundPolicy` object. The same engine functions accept any config:
@@ -152,7 +154,7 @@ Open `http://localhost:3000` for the chat dashboard, `http://localhost:3000/eval
 | Command | What it does |
 |---|---|
 | `pnpm dev` | Local dev server at `http://localhost:3000` |
-| `pnpm test:run` | Full Vitest suite (~259 tests, no key needed) |
+| `pnpm test:run` | Full Vitest suite (~273 tests, no key needed) |
 | `pnpm typecheck` | `tsc --noEmit` strict check |
 | `pnpm build` | Next.js production build |
 | `pnpm eval` | Deterministic eval gate (23 scenarios, no key) |

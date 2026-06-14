@@ -60,6 +60,8 @@ I chose Claude Sonnet (`claude-sonnet-4-6`) because the tool-use behavior with `
 
 The key to holding the line: **the three-tool sequence re-runs completely on every turn**. Prior tool results are not forwarded to the model as tool-result messages (they're dropped during UIMessage conversion); only the prose conversation context carries over. This means `crm_lookup` re-fetches the order, `evaluatePolicy` re-runs the oracle, and `applyRefundPolicy` re-applies the guardrail on every turn. A customer saying "but I really need this refund" in turn 3 cannot change what the oracle computes from the order data. The multi-turn adversarial scenarios in the eval set (legal threat, authority claim, day-31 gaming) confirm this across turns.
 
+One honest limitation of the current implementation: the in-memory CRM seed (`lib/crm/seed.ts`) is read-only — no tool writes new evidence back to it. This means a multi-turn scenario where the customer provides a new piece of information mid-conversation (e.g., uploads a photo proving damage) cannot update the order record and change the outcome in a subsequent turn. This is a known gap. The `CrmAdapter` interface (`lib/crm/adapter.ts`) has a natural seam for a `updateOrder()` method; adding that and a tool that calls it would make new-evidence mid-turn possible without touching the policy engine.
+
 ---
 
 **8. Tell me about the eval strategy. Why pass³? Why deterministic and live?**

@@ -177,9 +177,9 @@ export default function HomePage() {
     for (let i = traces.length - 1; i >= 0; i--) {
       const ev = traces[i];
       if (ev.type === "tool_result" && ev.data.tool_name === "crm_lookup") {
-        const result = ev.data.tool_result as Record<string, unknown> | null;
-        if (result && typeof result.item === "string") {
-          return result.item;
+        const result = ev.data.tool_result as { order?: { item?: unknown } } | null;
+        if (result?.order && typeof result.order.item === "string") {
+          return result.order.item;
         }
       }
     }

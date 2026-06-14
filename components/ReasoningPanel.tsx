@@ -305,7 +305,7 @@ function RailNode({ event, isLive }: RailNodeProps) {
     /* Node centered on the rail (left-0, translateX(-50%) centers the 10px dot on the 1px line) */
     <div
       aria-hidden
-      className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 w-2.5 h-2.5 z-10 animate-node-pop"
+      className="absolute left-2.5 top-1/2 -translate-y-1/2 -translate-x-1/2 w-2.5 h-2.5 z-10 animate-node-pop"
     >
       {/* Ping ring — only on the last (live/streaming) node */}
       {isLive && (
@@ -605,7 +605,7 @@ export function ReasoningPanel({ traces, itemName }: ReasoningPanelProps) {
              * Cards sit in pl-5 containers, so they start 20px from the panel edge.
              */}
             <div
-              className="absolute top-0 bottom-0 bg-zinc-800"
+              className="absolute top-0 bottom-0 bg-zinc-700"
               style={{ left: "10px", width: "1px" }}
               aria-hidden
             />

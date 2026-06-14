@@ -121,8 +121,16 @@ async function runScenarioLive(scenario: GoldenScenario, startMs: number): Promi
 
   try {
     // Build a minimal RefundUIMessage array (one user turn).
+    // orchestrate() reads msg.parts (the UIMessage shape) — NOT a `content`
+    // string. This must match how the API route and unit tests construct
+    // messages; otherwise orchestrate's `msg.parts.filter(...)` throws on
+    // undefined and every scenario short-circuits to escalate.
     const messages = [
-      { id: crypto.randomUUID(), role: "user", content: scenario.userMessage, createdAt: new Date() },
+      {
+        id: crypto.randomUUID(),
+        role: "user" as const,
+        parts: [{ type: "text" as const, text: scenario.userMessage }],
+      },
     ];
 
     let capturedDecision: Decision | null = null;

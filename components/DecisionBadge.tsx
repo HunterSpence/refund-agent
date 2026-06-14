@@ -60,6 +60,7 @@ export function DecisionBadge({ decision, size = "sm" }: DecisionBadgeProps) {
   const cfg = DECISION_CONFIG[decision];
   return (
     <span
+      aria-label={cfg.label}
       className={[
         "inline-flex items-center font-mono font-semibold rounded border",
         cfg.bg,
@@ -68,7 +69,11 @@ export function DecisionBadge({ decision, size = "sm" }: DecisionBadgeProps) {
         SIZE_CLASSES[size],
       ].join(" ")}
     >
-      <span className={["rounded-full flex-shrink-0", cfg.dot, DOT_SIZE[size]].join(" ")} />
+      {/* Decorative colored dot — hidden from assistive tech, label on parent covers it */}
+      <span
+        aria-hidden="true"
+        className={["rounded-full flex-shrink-0", cfg.dot, DOT_SIZE[size]].join(" ")}
+      />
       {cfg.label}
     </span>
   );

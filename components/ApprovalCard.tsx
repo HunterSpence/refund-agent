@@ -39,9 +39,12 @@ export function ApprovalCard({ outcome, itemName }: ApprovalCardProps) {
       <div className="animate-scale-in rounded-xl border border-emerald-700/40 bg-emerald-950/30 px-4 py-3 flex items-center gap-3">
         <span className="text-emerald-400 text-lg leading-none">✓</span>
         <div>
-          <p className="text-sm font-semibold text-emerald-400">Payout approved by agent</p>
+          {/* "human reviewer" — accurate: the button click is the human action */}
+          <p className="text-sm font-semibold text-emerald-400">
+            ✓ Approved by human reviewer — ${outcome.amount.toFixed(2)} released
+          </p>
           <p className="text-xs text-emerald-600 mt-0.5">
-            ${outcome.amount.toFixed(2)} refund authorized
+            Payout authorized and queued
           </p>
         </div>
       </div>
@@ -55,7 +58,7 @@ export function ApprovalCard({ outcome, itemName }: ApprovalCardProps) {
         <div>
           <p className="text-sm font-semibold text-amber-400">Escalated to senior review</p>
           <p className="text-xs text-amber-600 mt-0.5">
-            Case forwarded — agent approval overridden
+            Human reviewer overrode agent recommendation — case forwarded
           </p>
         </div>
       </div>

@@ -117,15 +117,17 @@ function ResultRow({ result }: { result: ScenarioResult }) {
         result.pass ? "" : "bg-rose-950/10",
       ].join(" ")}
     >
-      {/* Status */}
+      {/* Status — color dot with sr-only label so screen readers get the outcome */}
       <td className="px-3 py-2.5 text-center">
         <span
+          aria-hidden="true"
           className={[
             "inline-block w-2 h-2 rounded-full",
             result.pass ? "bg-emerald-400" : "bg-rose-400",
           ].join(" ")}
           title={result.pass ? "PASS" : "FAIL: " + result.failureReason}
         />
+        <span className="sr-only">{result.pass ? "PASS" : "FAIL"}</span>
       </td>
 
       {/* ID */}

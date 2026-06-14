@@ -63,13 +63,21 @@ interface MinimalSpeechRecognitionEvent {
   readonly results: MinimalSpeechRecognitionResultList;
 }
 
+/** Minimal shape of a SpeechRecognitionError event (not in all TS lib targets). */
+interface MinimalSpeechRecognitionErrorEvent {
+  error: string;
+}
+
 interface MinimalSpeechRecognition {
   lang: string;
   interimResults: boolean;
   continuous: boolean;
   onresult: ((event: MinimalSpeechRecognitionEvent) => void) | null;
   onend: (() => void) | null;
-  onerror: ((event: Event) => void) | null;
+  // Widened to MinimalSpeechRecognitionErrorEvent so we can access event.error
+  // for diagnostics if needed (e.g., "not-allowed", "no-speech"). Using a
+  // union rather than `Event` keeps this zero-`any` and type-safe.
+  onerror: ((event: MinimalSpeechRecognitionErrorEvent) => void) | null;
   start(): void;
   stop(): void;
 }
@@ -103,6 +111,11 @@ export function VoiceButton({ onTranscript, speakText, disabled }: VoiceButtonPr
   const [supported, setSupported] = useState(true); // optimistic; corrected in effect
   const recognizerRef = useRef<MinimalSpeechRecognition | null>(null);
 
+  // Set to true the first time the user activates the mic. TTS is gated on this
+  // flag so the component never auto-speaks on page load — it only reads aloud
+  // when the user has explicitly opted in to voice interaction.
+  const hasUsedVoice = useRef(false);
+
   // ── Feature detection (client-only, inside effect) ──────────────────────
   useEffect(() => {
     const win = window as unknown as SpeechWindow;
@@ -113,7 +126,13 @@ export function VoiceButton({ onTranscript, speakText, disabled }: VoiceButtonPr
   }, []);
 
   // ── TTS: speak latest assistant reply when speakText changes ────────────
+  //
+  // Gated on hasUsedVoice: TTS only fires after the user has activated the mic
+  // at least once. This prevents the component from speaking on initial render
+  // (e.g., when a prior reply is passed as a prop at mount time) and respects
+  // the principle that audio output should be opt-in.
   useEffect(() => {
+    if (!hasUsedVoice.current) return;
     if (!speakText || typeof window === "undefined" || !window.speechSynthesis) return;
     // Cancel any in-progress speech before speaking the new text
     window.speechSynthesis.cancel();
@@ -184,6 +203,8 @@ export function VoiceButton({ onTranscript, speakText, disabled }: VoiceButtonPr
 
     recognizerRef.current = rec;
     rec.start();
+    // Mark that the user has opted in to voice — enables TTS from this point on.
+    hasUsedVoice.current = true;
     setListening(true);
   }
 

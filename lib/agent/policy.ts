@@ -100,6 +100,32 @@ export const POLICY: RefundPolicy = {
   vip_waives_restocking_non_electronics: true,
 };
 
+/**
+ * Retailer B policy v B-1.0 — a stricter drop-in alternate config.
+ *
+ * Demonstrates the configurable-policy primitive: the same engine functions
+ * (evaluatePolicy, applyRefundPolicy, policyText) accept any RefundPolicy
+ * value and produce correct, differentiated outcomes without a single line of
+ * engine logic changing. Swap the config; the entire system adapts.
+ *
+ * Retailer B is stricter in three ways:
+ *   • Half the return window (14 days vs 30).
+ *   • Flat 25% restocking fee on all opened items — no category break.
+ *   • VIP customers receive NO restocking-fee waiver on non-electronics.
+ *   • Tighter abuse threshold (2 priors vs 3) and high-value escalation (1 prior vs 2,
+ *     threshold $300 vs $500).
+ */
+export const POLICY_RETAILER_B: RefundPolicy = {
+  version: "B-1.0",
+  return_window_days: 14,                                   // stricter: half the window
+  restocking_fee: { opened_electronics: 0.25, opened_other: 0.25 }, // flat 25%, no category break
+  abuse_prior_threshold: 2,                                 // stricter abuse cutoff
+  high_value_threshold: 300,
+  high_value_prior_threshold: 1,
+  confidence_floor: 0.65,
+  vip_waives_restocking_non_electronics: false,             // NO VIP waiver
+};
+
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
 /**

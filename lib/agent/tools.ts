@@ -164,9 +164,10 @@ export function createTools(session: AgentSession) {
         ),
       proposed_amount: z
         .number()
+        .nonnegative()
         .nullable()
         .describe(
-          "The refund amount you propose in USD, or null for deny/escalate. " +
+          "The refund amount you propose in USD (≥ 0), or null for deny/escalate. " +
             "The policy engine recomputes the final amount — this is a proposal only.",
         ),
     }),

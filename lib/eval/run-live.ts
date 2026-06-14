@@ -112,8 +112,7 @@ async function runScenarioLive(scenario: GoldenScenario, startMs: number): Promi
   // The orchestrate() API takes RefundUIMessage[] — we wrap the scenario's
   // userMessage as a minimal user turn.
   const { orchestrate } = await import("@/lib/agent/orchestrate");
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  type AnyOrchestrate = (opts: any) => any;
+  type AnyOrchestrate = typeof orchestrate;
 
   let liveResult: LiveRunResult | null = null;
   let orchestrateError: string | undefined;

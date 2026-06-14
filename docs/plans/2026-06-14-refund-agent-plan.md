@@ -1,203 +1,133 @@
-# Refund Agent — Implementation Plan
+# Refund Agent — Implementation Plan (v2)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax.
 
-**Goal:** Build an AI customer-support agent that approves/denies/escalates e-commerce refunds via tool-calling, with one shared agent core feeding a text chat and a voice frontend, a live reasoning dashboard, and an eval harness — deployed on Vercel.
+**Goal:** An AI customer-support agent that approves/denies/escalates e-commerce refunds via tool-calling, with one shared agent core feeding a text chat + a voice frontend, a live reasoning dashboard, durable tracing, and an eval harness — deployed on Vercel. Built to be **defensible in a 30-min code-walkthrough interview.**
 
-**Architecture:** Single Next.js 15 app. A provider-agnostic agent core (`lib/agent`) runs a Vercel AI SDK v6 tool-calling loop with a hard policy gate + post-loop validator, emitting typed trace events over SSE. Chat and voice are thin frontends hitting the same `/api/agent`. Policy is code; CRM is a deterministic mock; every scenario is an eval test.
+**Architecture:** Single Next.js 15 app. Provider-agnostic agent core (`lib/agent`) runs a Vercel **AI SDK v6** tool-calling loop with **deterministic tool ordering (`prepareStep`/`activeTools`)**, a policy-as-code oracle, and a post-loop validator, emitting typed trace events. Chat + voice are thin frontends hitting the same `/api/agent` (Node runtime). Policy is code; CRM is a deterministic mock; the two highest-signal scenarios are CI-gated evals.
 
-**Tech Stack:** Next.js 15 (App Router), TypeScript (strict), Vercel AI SDK v6 (`@ai-sdk/anthropic`, swappable to OpenAI), Zod, Tailwind + shadcn/ui, Deepgram (STT) + Cartesia (TTS) browser SDKs, Vitest, GitHub Actions, pnpm.
-
-**Build order rationale:** domain + policy first (pure functions, no LLM, fully testable), then the agent core (LLM mocked in tests), then API, then UI, then voice, then eval/CI, then deploy/docs. ~80% of the code is testable with no API key.
+**Tech Stack:** Next.js 15, TypeScript strict, **`ai@^6` + `@ai-sdk/react@^6` + `@ai-sdk/anthropic` (swappable `@ai-sdk/openai`)**, Zod, Tailwind + shadcn/ui, `@deepgram/sdk` v3 + `@cartesia/cartesia-js` v3 (browser, ephemeral tokens), `@langfuse/vercel`, Vitest (`MockLanguageModelV3`), GitHub Actions, pnpm.
 
 ---
 
-## File Structure
+## Changes from v1 (from the 4-agent Opus validation)
 
+**Verdict:** strong plan, ship with these changes.
+
+**API CORRECTIONS (v6 — v1 used v4/v5 names that break):**
+- `tool({ inputSchema })` — NOT `parameters`.
+- `stopWhen: [hasToolCall('decide_refund'), stepCountIs(10)]` — NOT `maxSteps`.
+- Enforce tool order with `prepareStep` → `activeTools` (deterministic; the model literally can't call out-of-order tools). This replaces prompt-only ordering.
+- Route returns `result.toUIMessageStreamResponse()` — NOT `toDataStreamResponse()`. **Runtime = `nodejs`, NOT `edge`** (edge can't do long-lived SSE / voice).
+- Client reads `message.parts[]`; tool parts are `type: 'tool-{name}'` with `state` `input-streaming→input-available→output-available`. Custom trace via `createUIMessageStream` + `writer.write({type:'data-trace',...})`.
+- Tests use `MockLanguageModelV3` from `ai/test` + `simulateReadableStream`. `useChat` from `@ai-sdk/react`.
+
+**ADD (high ROI):**
+- **Prompt-injection guard:** bind `order_id` from session context (not free user text) where possible; never echo raw user input into tool descriptions; `assertNoOverride()` scan on inbound user messages. (#1 senior-review ding.)
+- **Langfuse tracing** via `@langfuse/vercel` in `onStepFinish` → persistent trace tree (latency + token cost per decision). The **two-panel Loom shot (Langfuse + live timeline)** is the highest-leverage 30s of the demo.
+- **`outputSchema` on `decide_refund`** so the final decision is Zod-validated at the boundary (validator becomes structurally enforced).
+
+**CUT (YAGNI / interview-noise):**
+- CRM fault-injection retry demo (retry is implicit in the step loop; not worth the time).
+- Per-step UI timers → show **aggregate latency on the decision badge** instead.
+
+**CHANGE:**
+- Eval harness scoped to the **2 killer scenarios** (holding-the-line + day-31 boundary) as a **CI-gated badge**; broader scenarios run locally.
+- README adds a **"production voice = LiveKit" paragraph** (pre-empts the scale question).
+
+**Defensibility (this is graded):** every file must be explainable by Hunter. The 30-min interview is a code walkthrough — "why this, not that", edge cases, failure modes, and **"how do you know it works?" (evals — the #1 rejection point).** A `docs/INTERVIEW-PREP.md` is a deliverable.
+
+---
+
+## Corrected core code patterns (AI SDK v6 — verified)
+
+**Tools** (`lib/agent/tools.ts`):
+```ts
+import { tool } from 'ai'; import { z } from 'zod';
+export const crm_lookup = tool({
+  description: 'Look up an order + customer by order_id. Call first.',
+  inputSchema: z.object({ order_id: z.string() }),
+  execute: async ({ order_id }) => crm.lookup(order_id), // throws→retry handled in client
+});
+export const decide_refund = tool({
+  description: 'Emit the FINAL decision. Only after policy_check.',
+  inputSchema: z.object({ order_id: z.string(), decision: z.enum(['approve','deny','escalate']),
+    refund_amount: z.number().nullable(), justification: z.string().min(30),
+    policy_clauses_cited: z.array(z.string()) }),
+  outputSchema: z.object({ finalized: z.literal(true) }).passthrough(),
+  execute: async (a) => ({ finalized: true as const, ...a }),
+});
 ```
-refund-agent/
-├── app/
-│   ├── layout.tsx, globals.css, page.tsx        # split-view shell
-│   ├── api/agent/route.ts                        # POST → SSE TraceEvents
-│   └── api/voice/{stt,tts}/route.ts              # ephemeral token / proxy
-├── lib/
-│   ├── types.ts                                  # Order, Decision, TraceEvent...
-│   ├── crm/{data.ts,client.ts}                   # 15 profiles + lookup (+ fault injection)
-│   ├── agent/
-│   │   ├── policy.ts                             # rules-as-data + validateAgainstPolicy()
-│   │   ├── tools.ts                              # crm_lookup, policy_check, decide_refund
-│   │   ├── prompts.ts                            # system prompt + few-shots
-│   │   ├── orchestrate.ts                        # the loop → async TraceEvent stream
-│   │   ├── validator.ts                          # post-loop guard
-│   │   └── model.ts                              # provider selection (anthropic|openai)
-│   └── eval/{scenarios.ts,run.ts}                # eval harness
-├── components/{ChatWindow,ReasoningPanel,DecisionBadge,ToolCallCard,VoiceButton}.tsx
-├── tests/{policy,validator,orchestrate,crm,eval}.test.ts
-├── .github/workflows/ci.yml
-├── .env.example, Makefile, README.md
-└── docs/{specs,plans}/
+
+**Orchestrate** (`lib/agent/orchestrate.ts`):
+```ts
+import { streamText, stepCountIs, hasToolCall } from 'ai';
+export function runAgent({ model, messages }) {
+  return streamText({
+    model, system: buildSystemPrompt(), messages,
+    tools: { crm_lookup, policy_check, decide_refund },
+    stopWhen: [hasToolCall('decide_refund'), stepCountIs(8)],
+    prepareStep: ({ stepNumber }) => ({
+      activeTools: stepNumber === 0 ? ['crm_lookup']
+                 : stepNumber === 1 ? ['policy_check'] : ['decide_refund'] }),
+    onStepFinish: ({ stepType, text, toolCalls, toolResults, usage }) => emitTrace(...),
+  });
+}
 ```
+
+**Route** (`app/api/agent/route.ts`): `export const runtime='nodejs'; export const maxDuration=60;` → `return runAgent(...).toUIMessageStreamResponse();` (+ 15s SSE heartbeat).
+
+**Client** (`@ai-sdk/react`): `useChat({ transport: new DefaultChatTransport({ api:'/api/agent' }) })`; render `msg.parts` — `text`, `tool-crm_lookup`/`tool-policy_check`/`tool-decide_refund` (by `state`), and `data-trace` custom parts.
+
+**Test** (`MockLanguageModelV3` from `ai/test` + `simulateReadableStream`): script `tool-call`→`finish` chunks per step; assert `onStepFinish` toolNames === `['crm_lookup','policy_check','decide_refund']`; holding-the-line script never yields `approve`.
 
 ---
 
-## Phase 0 — Scaffold & tooling
-
-### Task 0.1: Next.js + TS + Tailwind scaffold
-**Files:** Create app via CLI into the existing repo dir.
-- [ ] Run: `pnpm create next-app@latest . --ts --tailwind --eslint --app --src-dir=false --import-alias "@/*" --use-pnpm` (accept overwrite of nothing committed except docs/.gitignore; keep them).
-- [ ] Add strict flags to `tsconfig.json`: `"noUncheckedIndexedAccess": true, "exactOptionalPropertyTypes": true`.
-- [ ] Install deps: `pnpm add ai @ai-sdk/anthropic @ai-sdk/openai zod nanoid` and `pnpm add -D vitest @vitest/coverage-v8 prettier`.
-- [ ] Init shadcn: `pnpm dlx shadcn@latest init -d` then `pnpm dlx shadcn@latest add button card badge skeleton resizable scroll-area`.
-- [ ] Commit: `chore: scaffold next.js app + tooling`.
-
-### Task 0.2: Project scripts + Makefile + env example
-- [ ] Create `.env.example`:
-```
-# LLM — supply your OWN key (the live demo uses a separate capped key, server-side)
-ANTHROPIC_API_KEY=sk-ant-xxxxxxxx
-LLM_PROVIDER=anthropic            # anthropic | openai
-# OPENAI_API_KEY=sk-xxxx          # only if LLM_PROVIDER=openai
-# Voice (optional, demo only)
-DEEPGRAM_API_KEY=dg-xxxx
-CARTESIA_API_KEY=ck-xxxx
-```
-- [ ] Create `Makefile` with `install dev seed test eval lint build` targets (wrap pnpm scripts).
-- [ ] Add `vitest.config.ts` (node env, globals). Add `"test":"vitest run"`, `"eval":"tsx lib/eval/run.ts"` to package.json. `pnpm add -D tsx`.
-- [ ] Commit: `chore: scripts, Makefile, .env.example`.
-
----
+## Phase 0 — Scaffold
+- [ ] 0.1 `pnpm create next-app@latest . --ts --tailwind --eslint --app --use-pnpm` (keep docs/.gitignore); add `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`.
+- [ ] 0.2 `pnpm add ai@^6 @ai-sdk/react@^6 @ai-sdk/anthropic @ai-sdk/openai zod nanoid @langfuse/vercel`; `pnpm add -D vitest @vitest/coverage-v8 tsx prettier`; shadcn init + add `button card badge skeleton resizable scroll-area`.
+- [ ] 0.3 `.env.example` (ANTHROPIC_API_KEY placeholder + LLM_PROVIDER + DEEPGRAM/CARTESIA + LANGFUSE_* ), `Makefile` (install dev seed test eval lint build), `vitest.config.ts`, scripts. Commit each.
 
 ## Phase 1 — Domain & policy (pure, no LLM)
+- [ ] 1.1 `lib/types.ts` — Order, Decision, RefundOutcome, TraceEvent (spec §7). Commit.
+- [ ] 1.2 `lib/crm/{data,client}.ts` + `tests/crm.test.ts` — 15 profiles (spec §8 + 10 covering every branch incl. day-30 boundary, perishable, subscription, gift, missing delivery_date, in-transit+photo). TDD. Commit. *(No fault-injection — cut.)*
+- [ ] 1.3 `lib/agent/policy.ts` + `tests/policy.test.ts` — `POLICY` data, `policyText()`, deterministic **`evaluatePolicy(order)` oracle**, `validateAgainstPolicy()`. TDD against spec §10 rows. Commit.
 
-### Task 1.1: Core types
-**Files:** Create `lib/types.ts`.
-- [ ] Define `Tier`, `Condition`, `Category`, `Flag` unions; `Order` interface (all CRM fields from spec §8); `Decision = 'approve'|'deny'|'escalate'`; `RefundOutcome { decision; refund_amount: number|null; justification; policy_clauses_cited: string[] }`; `TraceEvent` (spec §7).
-- [ ] Commit: `feat: core domain types`.
-
-### Task 1.2: Mock CRM (15 profiles) + client with fault injection
-**Files:** Create `lib/crm/data.ts`, `lib/crm/client.ts`, Test `tests/crm.test.ts`.
-- [ ] **Write failing test** `tests/crm.test.ts`: asserts `ORDERS.length === 15`, all `order_id` unique, each has required fields; `lookup('ORD-1042')` returns Alice; `lookup('NOPE')` returns null; with `CRM_FAIL_ONCE` set, first `lookup` throws then succeeds.
-- [ ] Run: `pnpm vitest run tests/crm.test.ts` → FAIL.
-- [ ] Implement `data.ts` (15 profiles — the 5 in spec §8 verbatim + 10 more spanning every policy branch: within/outside window, opened electronics, perishable, subscription, gift, VIP non-electronics, missing delivery_date, in-transit w/ photo, exactly day-30 boundary).
-- [ ] Implement `client.ts`: `lookup(orderId)` reads `data.ts`; optional `MOCK_CRM_DELAY` + `CRM_FAIL_ONCE` env for the retry demo.
-- [ ] Run test → PASS. Commit: `feat: mock CRM with 15 profiles + fault injection`.
-
-### Task 1.3: Policy engine (rules as data + validator)
-**Files:** Create `lib/agent/policy.ts`, Test `tests/policy.test.ts`.
-- [ ] **Write failing test** covering spec §10 rows 1–8 against `evaluatePolicy(order)` (pure function returning `{decision, refund_amount, violated_clauses, cited}`): Alice→approve 89.99; Derek→deny [§2.2]; Maria→approve 110.49 [§2.4]; Sam→escalate [§2.9]; Jordan→deny [§2.6]; day-30 boundary→approve; perishable→deny [§2.8]; null delivery_date→escalate [§2.9].
-- [ ] Run → FAIL.
-- [ ] Implement `policy.ts`: `POLICY` (versioned object: window_days 30, restocking fees, abuse_threshold 3, etc.), `policyText()` (renders the `<policy>` block for the prompt), `evaluatePolicy(order)` deterministic reference logic, `validateAgainstPolicy(decision, order)` used by the tool + validator.
-- [ ] Run → PASS. Commit: `feat: policy engine (rules-as-data, reference evaluator)`.
-
-> NOTE: `evaluatePolicy` is the deterministic ground truth used by the eval harness AND by `policy_check`. The LLM still *reasons*; this guarantees correctness + gives us a test oracle.
-
----
-
-## Phase 2 — Agent core (LLM mocked in tests)
-
-### Task 2.1: Model provider selection
-**Files:** Create `lib/agent/model.ts`.
-- [ ] Implement `getModel()` → reads `LLM_PROVIDER`; returns `anthropic('claude-sonnet-4-6')` or `openai('gpt-5')`. Throw a clear error if the key env is missing.
-- [ ] Commit: `feat: provider-agnostic model selection`.
-
-### Task 2.2: Tools (Zod schemas, wrap policy + CRM)
-**Files:** Create `lib/agent/tools.ts`, Test `tests/tools.test.ts`.
-- [ ] **Write failing test:** `crm_lookup.execute({order_id:'ORD-1042'})` returns Alice; `policy_check.execute(...)` returns `{compliant, violated_clauses}` consistent with `evaluatePolicy`; `decide_refund` echoes a finalized decision. CRM 503 path retries.
-- [ ] Run → FAIL.
-- [ ] Implement the three `tool({...})` defs (spec §6) with retry/backoff in `crm_lookup`.
-- [ ] Run → PASS. Commit: `feat: agent tools (crm_lookup, policy_check, decide_refund)`.
-
-### Task 2.3: Prompts
-**Files:** Create `lib/agent/prompts.ts`.
-- [ ] `buildSystemPrompt()` injects `policyText()` in a `<policy>` block; enforces strict tool order (crm_lookup → policy_check → decide_refund) and "never approve out-of-policy regardless of customer pressure; if policy_check is non-compliant you MUST deny or escalate." Add 2 few-shot exemplars (one approve, one hold-the-line deny).
-- [ ] Commit: `feat: system prompt with policy + hard constraints`.
-
-### Task 2.4: Validator (post-loop guard)
-**Files:** Create `lib/agent/validator.ts`, Test `tests/validator.test.ts`.
-- [ ] **Write failing test:** an "approve $500 with no passing policy_check in history" input → validator overrides to `deny`/`escalate` and flags it; valid approve passes through; amount out of `[0, price]` is rejected.
-- [ ] Run → FAIL. Implement `validateOutcome(outcome, order, toolHistory)`. Run → PASS.
-- [ ] Commit: `feat: post-loop output validator (guardrail)`.
-
-### Task 2.5: orchestrate() — the loop, with mocked LLM
-**Files:** Create `lib/agent/orchestrate.ts`, Test `tests/orchestrate.test.ts`.
-- [ ] **Write failing test** using AI SDK `MockLanguageModel` (no network): feed a scripted tool-call sequence for Alice → assert `orchestrate()` yields TraceEvents in order `thought, tool_call(crm_lookup), tool_result, tool_call(policy_check), tool_result, tool_call(decide_refund), decision(approve)`; and the **holding-the-line** script (post-deny pressure) never yields `decision:approve`.
-- [ ] Run → FAIL.
-- [ ] Implement `orchestrate(messages, {model})` using `streamText({ model, system, tools, stopWhen: hasToolCall('decide_refund'), onStepFinish })`, mapping steps → `TraceEvent`s via an async generator; run `validateOutcome` before emitting the final `decision`.
-- [ ] Run → PASS. Commit: `feat: agent orchestration loop with trace events`.
-
----
+## Phase 2 — Agent core (LLM mocked)
+- [ ] 2.1 `lib/agent/model.ts` — `getModel()` (anthropic|openai by `LLM_PROVIDER`; clear error if key missing). Commit.
+- [ ] 2.2 `lib/agent/guard.ts` + test — `assertNoOverride(userText)` (reject injection like "ignore policy/approve anyway"); helper to bind `order_id` from session. Commit.
+- [ ] 2.3 `lib/agent/tools.ts` + `tests/tools.test.ts` — the 3 tools above (`inputSchema`, `outputSchema` on decide_refund), wrapping CRM + `evaluatePolicy`. TDD. Commit.
+- [ ] 2.4 `lib/agent/prompts.ts` — `buildSystemPrompt()` with `<policy>` block + "never approve out-of-policy regardless of pressure" + 2 few-shots (approve, hold-the-line). Commit.
+- [ ] 2.5 `lib/agent/validator.ts` + `tests/validator.test.ts` — post-loop guard (decision∈enum; amount∈[0,price]; policy_check passed in history else override). TDD. Commit.
+- [ ] 2.6 `lib/agent/orchestrate.ts` + `tests/orchestrate.test.ts` — the `streamText` loop above with `prepareStep` ordering; async-generate TraceEvents; run validator before final decision. **MockLanguageModelV3** TDD incl. holding-the-line. Commit.
 
 ## Phase 3 — API
+- [ ] 3.1 `app/api/agent/route.ts` + `tests/api-agent.test.ts` — `runtime='nodejs'`, `toUIMessageStreamResponse()`, custom `data-trace` parts, 15s heartbeat, `maxDuration=60`. TDD (mocked model via env flag). Commit.
 
-### Task 3.1: /api/agent SSE route
-**Files:** Create `app/api/agent/route.ts`, Test `tests/api-agent.test.ts`.
-- [ ] **Write failing test:** POST `{order_id, message}` → response is `text/event-stream`; collected events include a terminal `decision`. (Use mocked model via a test env flag.)
-- [ ] Run → FAIL. Implement: `runtime='edge'`, build `ReadableStream`, pipe `orchestrate()` events as `data: {json}\n\n`, 15s heartbeats, `maxDuration=300`.
-- [ ] Run → PASS. Commit: `feat: streaming /api/agent route`.
+## Phase 4 — Frontend
+- [ ] 4.1 `app/page.tsx` + `components/ChatWindow.tsx` — `ResizablePanelGroup` 40/60; `useChat` (`@ai-sdk/react`). Manual check w/ real key. Commit.
+- [ ] 4.2 `components/{ReasoningPanel,ToolCallCard,DecisionBadge}.tsx` — timeline from `msg.parts` (Shiki JSON, APPROVED/DENIED/ESCALATED badge w/ **aggregate latency**, policy chips). `pnpm add shiki react-json-view-lite framer-motion lucide-react`. Commit. *(No per-step timers — cut.)*
 
----
+## Phase 5 — Voice (browser, ephemeral tokens)
+- [ ] 5.1 `app/api/deepgram-token/route.ts` (`nodejs`) — mint scoped/short-TTL Deepgram token (`/v1/auth/grant` or scoped project key, delete on close). Commit.
+- [ ] 5.2 `app/api/cartesia-token/route.ts` — POST `/access-token` `{grants:{tts:true},expires_in:300}`. Commit.
+- [ ] 5.3 `components/VoiceButton.tsx` — mic→Deepgram WS (`Sec-WebSocket-Protocol ['token',key]`) → transcript → POST `/api/agent` → on final text, Cartesia WS (`sonic`, pcm_s16le 24k) → Web Audio. AudioContext created in click handler; `MediaRecorder.isTypeSupported` fallback. **Web Speech API fallback** if WS blocked. Manual check: speak → spoken decision + same trace. Commit.
 
-## Phase 4 — Frontend (chat + reasoning dashboard)
+## Phase 6 — Eval + observability + CI
+- [ ] 6.1 `lib/eval/{scenarios,run}.ts` + `tests/eval.test.ts` — all spec §10 scenarios via `orchestrate` vs `evaluatePolicy` oracle (accuracy + tool-selection + est. cost); mocked-model test asserts 100%. Commit.
+- [ ] 6.2 Langfuse wiring (`@langfuse/vercel` in `onStepFinish`) + `.env` keys; verify a trace appears. Commit.
+- [ ] 6.3 `.github/workflows/ci.yml` — typecheck, lint, vitest, **`pnpm eval` (the 2 killer scenarios, mocked) as a gate**, build. Badges in README. Commit.
 
-### Task 4.1: Split-view shell + chat pane
-**Files:** Modify `app/page.tsx`; Create `components/ChatWindow.tsx`.
-- [ ] Implement `ResizablePanelGroup` (chat 40% / admin 60%). Chat uses `useChat` against `/api/agent`; renders user/assistant turns; input + send.
-- [ ] Manual check: `pnpm dev`, send "refund ORD-1042" with a real key → streams a reply. Commit: `feat: split-view shell + chat pane`.
+## Phase 7 — Deploy, README, prep, Loom
+- [ ] 7.1 Vercel: set server env (capped `ANTHROPIC_API_KEY`, voice + Langfuse keys), `vercel --prod`; confirm stream + voice over HTTPS. Commit config.
+- [ ] 7.2 `README.md` — pitch, CI + eval badges, Live Demo (Loom + URL), Mermaid architecture, <2-min quickstart, `.env` table, Design Decisions, Test/Eval strategy, **"production voice → LiveKit" paragraph**, Roadmap. Commit.
+- [ ] 7.3 `docs/INTERVIEW-PREP.md` — the 10 defend-your-build Q&As (loop, tools, policy, guardrails/injection, failure handling, model choice, state, **evals**, full-stack, what-I'd-change). Commit.
+- [ ] 7.4 Record Loom (spec §12 + the two-panel Langfuse shot). Flip repo **public** at submission.
 
-### Task 4.2: Reasoning dashboard
-**Files:** Create `components/ReasoningPanel.tsx`, `ToolCallCard.tsx`, `DecisionBadge.tsx`.
-- [ ] `ReasoningPanel` subscribes to the same message/event stream, filters non-text parts, renders a vertical timeline: thought (italic), `ToolCallCard` (Shiki-highlighted JSON args + per-step timer), tool_result (success/error border), `DecisionBadge` (APPROVED emerald / DENIED rose / ESCALATED amber), policy-citation chips, retry indicator.
-- [ ] `pnpm add shiki react-json-view-lite framer-motion lucide-react`.
-- [ ] Manual check: run a scenario, confirm live trace + badge. Commit: `feat: live agent reasoning dashboard`.
-
----
-
-## Phase 5 — Voice (browser STT → core → TTS)
-
-### Task 5.1: Deepgram STT + Cartesia TTS plumbing
-**Files:** Create `components/VoiceButton.tsx`, `app/api/voice/token/route.ts`.
-- [ ] `token` route mints short-lived Deepgram creds server-side (key never reaches the browser raw). VoiceButton: mic via `MediaRecorder` → Deepgram streaming → transcript → POST to `/api/agent` (same path) → on final decision text, call Cartesia TTS and play audio. Mic pulse via `animate-ping`; pre-grant permission helper.
-- [ ] Manual check: speak "refund order ORD-2210", hear the spoken denial, see the SAME trace in the admin pane. Commit: `feat: voice frontend (Deepgram STT + Cartesia TTS, shared core)`.
-
----
-
-## Phase 6 — Eval harness + CI
-
-### Task 6.1: Eval harness
-**Files:** Create `lib/eval/scenarios.ts`, `lib/eval/run.ts`, Test `tests/eval.test.ts`.
-- [ ] `scenarios.ts` = spec §10 rows as `{order_id, customerMessage, expected: Decision, expectedAmount?, rule}`.
-- [ ] `run.ts` runs each scenario through `orchestrate()` (real or mocked model via flag), compares to `evaluatePolicy` oracle, prints a table: decision accuracy, tool-selection accuracy, avg tokens & est. cost/decision; exit 1 on any mismatch.
-- [ ] `tests/eval.test.ts` runs the harness with the **mocked** model deterministically and asserts 100% on the scripted set (so CI needs no key).
-- [ ] Commit: `feat: eval harness (accuracy + tool-selection + cost)`.
-
-### Task 6.2: GitHub Actions CI
-**Files:** Create `.github/workflows/ci.yml`.
-- [ ] Steps: checkout, pnpm, install, `tsc --noEmit`, `eslint`, `vitest run`, `pnpm eval` (mocked), `next build`. Add status badge to README.
-- [ ] Commit: `ci: typecheck, lint, test, eval, build`.
-
----
-
-## Phase 7 — Deploy, README, Loom
-
-### Task 7.1: Vercel deploy
-- [ ] `vercel link` + set env vars (capped `ANTHROPIC_API_KEY`, `LLM_PROVIDER`, voice keys) in the Vercel dashboard (server-side). `vercel --prod`. Confirm the live URL streams + voice works over HTTPS.
-- [ ] Commit any vercel config: `chore: vercel deploy config`.
-
-### Task 7.2: README (wow)
-**Files:** Create `README.md`.
-- [ ] Sections (spec §13): pitch, badges, Live Demo (Loom thumbnail + URL), Architecture (Mermaid diagram), Quickstart (<2 min), `.env` table, Design Decisions & Trade-offs, Test & Eval strategy, Voice path, Roadmap.
-- [ ] Commit: `docs: wow README + architecture diagram`.
-
-### Task 7.3: Record Loom
-- [ ] Follow spec §12 minute-by-minute. 18pt+ editor font, chapters, <10 min. Embed link in README + submit with the public repo URL.
-- [ ] Flip repo to **public** right before submission.
-
----
-
-## Self-Review (completed)
-- **Spec coverage:** every spec section maps to a task (CRM→1.2, policy→1.3, tools→2.2, prompt→2.3, validator→2.4, loop→2.5, API→3.1, chat→4.1, dashboard→4.2, voice→5.1, eval→6.1, CI→6.2, deploy/README/Loom→7.x). No gaps.
-- **Placeholders:** none — each task names exact files, a concrete test oracle (`evaluatePolicy`), and commit messages.
-- **Type consistency:** `Decision`, `RefundOutcome`, `TraceEvent`, `evaluatePolicy`, `validateOutcome`, `orchestrate` names are consistent across tasks 1.1→6.1.
+## Self-Review (v2)
+- **Spec coverage:** all spec sections mapped; additions (guard 2.2, Langfuse 6.2, outputSchema 2.3, interview-prep 7.3) appended; cuts (fault-injection, per-step timers) removed.
+- **Placeholders:** none — exact files, oracle-based tests, verified v6 APIs.
+- **Type consistency:** `evaluatePolicy`, `validateAgainstPolicy`, `runAgent`, `TraceEvent`, `Decision` consistent across tasks.
 
 ## Dependencies
-- Live (capped, throwaway) `ANTHROPIC_API_KEY` needed only for manual UI checks (4.1+), voice (5.1), real-model eval, and deploy (7.1). Phases 0–3, 6 (mocked), and all unit tests run with **no key**.
+- Capped throwaway `ANTHROPIC_API_KEY` (Hunter) — needed only for manual UI (4.1+), voice (5.x), real-model eval, deploy. Phases 0–3, 6 (mocked), all unit tests run with **no key**.

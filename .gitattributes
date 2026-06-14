@@ -1,0 +1,14 @@
+# Normalize line endings to LF in the repo (portable across Windows/Linux/CI).
+* text=auto eol=lf
+
+# Treat known binaries as binary (no EOL normalization).
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.mp3 binary
+*.wav binary

@@ -1,0 +1,104 @@
+# .github/workflows/ci.yml — Keyless CI pipeline for the refund agent.
+#
+# What runs on every push/PR to main:
+#   1. pnpm install (frozen lockfile — exact reproducibility)
+#   2. pnpm typecheck (tsc --noEmit, zero errors required)
+#   3. pnpm test:run (full vitest suite including the adversarial eval gate)
+#   4. pnpm build (Next.js production build, verifies no runtime type errors)
+#
+# NO secrets required.
+# NO LLM calls. The eval harness is deterministic (lib/eval/run.ts).
+# NO env vars needed beyond what Next.js needs for a static build.
+#
+# The live eval (lib/eval/run-live.ts) is NOT run in CI — it is env-gated
+# behind RUN_LIVE_EVAL=1 and requires ANTHROPIC_API_KEY. Run it manually
+# before releases: RUN_LIVE_EVAL=1 ANTHROPIC_API_KEY=... npx tsx lib/eval/run-live.ts
+
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - "feature/**"
+      - "fix/**"
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  ci:
+    name: typecheck · test · build
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── 2. Node.js setup ────────────────────────────────────────────────────
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # ── 3. pnpm setup ───────────────────────────────────────────────────────
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+
+      # ── 4. Cache pnpm store ─────────────────────────────────────────────────
+      - name: Get pnpm store directory
+        id: pnpm-store
+        shell: bash
+        run: echo "dir=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.dir }}
+          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-
+
+      # ── 5. Install dependencies (frozen lockfile — exact reproducibility) ───
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # ── 6. Type check ───────────────────────────────────────────────────────
+      - name: Typecheck (tsc --noEmit)
+        run: pnpm typecheck
+
+      # ── 7. Test suite (includes adversarial eval CI gate) ───────────────────
+      #
+      # The eval gate (tests/eval.test.ts) asserts:
+      #   accuracy === 1.0  (all 23 scenarios correct)
+      #   guardPrecision === 1.0  (all injections caught)
+      #   policyViolations === 0  (zero adversarial slippage)
+      #   passedCubed === 1.0  (deterministic, 3× stable)
+      #
+      # This runs WITHOUT ANTHROPIC_API_KEY. The deterministic runner in
+      # lib/eval/run.ts uses only policy.ts + guard.ts — no LLM calls.
+      - name: Test suite
+        run: pnpm test:run
+        env:
+          # Explicitly absent: no ANTHROPIC_API_KEY → any accidental LLM call will fail fast
+          # rather than silently succeeding with the default model.
+          CI: "true"
+
+      # ── 8. Next.js production build ─────────────────────────────────────────
+      #
+      # The build uses NEXT_PUBLIC_* env only (no server secrets needed for a
+      # static export check). We stub ANTHROPIC_API_KEY to a placeholder so
+      # Next.js doesn't throw on the import — the API route will fail at
+      # runtime if the key is missing, not at build time.
+      - name: Build (Next.js production)
+        run: pnpm build
+        env:
+          # Stub key: the build must succeed without a real key.
+          # The app validates the key at request time, not build time.
+          ANTHROPIC_API_KEY: "sk-ant-ci-stub-key-not-real"
+          # Prevent Next.js telemetry noise in CI.
+          NEXT_TELEMETRY_DISABLED: "1"

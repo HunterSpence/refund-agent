@@ -141,6 +141,28 @@ function assistantMessage(text: string): RefundUIMessage {
   };
 }
 
+// ─── Helper: text-only step (no tool call) ────────────────────────────────────
+//
+// Used to simulate a model run that completes WITHOUT emitting a decide_refund
+// tool call — the fail-safe escalation path (MUST-1).
+function textOnlyStep(text: string) {
+  const chunks = [
+    { type: "stream-start" as const, warnings: [] },
+    { type: "text-start" as const, id: "t1" },
+    { type: "text-delta" as const, id: "t1", delta: text },
+    { type: "text-end" as const, id: "t1" },
+    {
+      type: "finish" as const,
+      finishReason: { unified: "stop" as const, raw: "stop" },
+      usage: {
+        inputTokens: { total: 10, noCache: 10, cacheRead: undefined, cacheWrite: undefined },
+        outputTokens: { total: 5, text: 5, reasoning: undefined },
+      },
+    },
+  ];
+  return { stream: simulateReadableStream({ chunks, initialDelayInMs: null }) };
+}
+
 // ─── Test Suite ───────────────────────────────────────────────────────────────
 
 describe("orchestrate — hard-sequenced tool loop + multi-turn hold-the-line", () => {
@@ -370,7 +392,42 @@ describe("orchestrate — hard-sequenced tool loop + multi-turn hold-the-line", 
     expect(session.order?.order_id).toBe("ORD-1042");
   });
 
-  // ─── Test 6: Trace event shape validation ────────────────────────────────────
+  // ─── Test 6 (MUST-1): Fail-safe escalation when no decide_refund fires ────────
+  //
+  // If the model stream completes without ever emitting a decide_refund tool call
+  // (e.g. step count exceeded or model emits only text), the onFinish fail-safe
+  // MUST emit a decision trace with decision === "escalate".
+  //
+  // This test scripts a single text-only step (no tool calls) so the stream ends
+  // without any decide_refund, then asserts the fail-safe fires.
+  it("emits a fail-safe decision:escalate trace when the model never emits decide_refund", async () => {
+    const capturedTraces: TraceEvent[] = [];
+
+    // Script a model that emits only a text response on the first (and only) step.
+    // The off-by-one quirk means index 0 is a placeholder; the real call is index 1.
+    const textStep = textOnlyStep("I'm sorry, I cannot process this request.");
+    const model = new MockLanguageModelV3({
+      doStream: [textStep, textStep],
+    });
+
+    const { result } = orchestrate({
+      messages: [userMessage("Process refund for ORD-UNKNOWN.")],
+      model,
+      onTrace: (e) => capturedTraces.push(e),
+    });
+
+    await result.consumeStream();
+
+    // A decision trace MUST be present — the fail-safe must have fired.
+    const decisionTrace = capturedTraces.find((e) => e.type === "decision");
+    expect(decisionTrace).toBeDefined();
+    expect(decisionTrace?.data.decision).toBe("escalate");
+
+    // The violated_clauses should include the sentinel "no_decision" label.
+    expect(decisionTrace?.data.violated_clauses).toContain("no_decision");
+  });
+
+  // ─── Test 8: Trace event shape validation ────────────────────────────────────
   //
   // Every TraceEvent must have the canonical required fields:
   //   id (non-empty string), session_id (non-empty string), step (number ≥ 0),

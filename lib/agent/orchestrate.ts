@@ -185,6 +185,12 @@ export function orchestrate(opts: OrchestrateOptions) {
   // zero-indexed so the first tool call is step 0.
   let stepCounter = 0;
 
+  // Fail-safe flag: set to true once a decide_refund decision trace is emitted.
+  // If the stream ends (onFinish fires) and this is still false, it means the
+  // model exhausted its step budget without reaching a decision — we emit an
+  // escalate trace so the UI always has a resolution, never a silent hang.
+  let decisionEmitted = false;
+
   // ── 2. Trace emitter ───────────────────────────────────────────────────────
 
   /**
@@ -359,6 +365,9 @@ export function orchestrate(opts: OrchestrateOptions) {
               decision: outcome.decision as Decision,
               violated_clauses: outcome.violated_clauses,
             });
+            // Record that a real decision was reached; the fail-safe in onFinish
+            // checks this flag before emitting the sentinel escalate trace.
+            decisionEmitted = true;
 
             // If the policy engine overrode the model's proposal, emit a
             // policy_violation trace. This is the signal that the guardrail
@@ -379,6 +388,30 @@ export function orchestrate(opts: OrchestrateOptions) {
       // Advance the step counter AFTER processing this step's data.
       // The counter reflects which step the NEXT emission will belong to.
       stepCounter++;
+    },
+
+    // onFinish — fires once after the entire stream closes (all steps done,
+    // all onStepFinish callbacks complete). This is the safety net:
+    //
+    // If the model exhausted the step budget (stepCountIs(8)) or produced only
+    // text without ever calling decide_refund, decisionEmitted will still be
+    // false. We emit an escalate decision here so the UI always receives a
+    // resolution — it should never show a pending spinner after stream close.
+    //
+    // This guard is intentionally minimal: it emits the single missing trace
+    // rather than retrying the agent loop, which would risk compounding the
+    // original failure (bad input, model confusion) with additional API spend.
+    onFinish() {
+      if (!decisionEmitted) {
+        emit("decision", {
+          decision: "escalate" as Decision,
+          violated_clauses: ["no_decision"],
+          // Use error_message (the TraceEvent data field for diagnostic text)
+          // to record WHY the fail-safe fired — auditable without a new field.
+          error_message:
+            "Agent did not reach a decision within the step limit — escalated to a human.",
+        });
+      }
     },
   });
 

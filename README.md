@@ -160,6 +160,8 @@ Open `http://localhost:3000` for the chat dashboard, `http://localhost:3000/eval
 | `pnpm eval` | Deterministic eval gate (23 scenarios, no key) |
 | `RUN_LIVE_EVAL=1 npx tsx lib/eval/run-live.ts` | Live eval with real model (needs `ANTHROPIC_API_KEY`) |
 
+A `Makefile` wraps these: `make install`, `make dev`, `make seed`, `make test`, `make eval`, `make build`, and `make check` (the full CI gate). Run `make` with no args for the list.
+
 ---
 
 ## Voice

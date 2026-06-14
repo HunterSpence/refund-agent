@@ -15,7 +15,7 @@ Most take-home submissions ship a happy-path chatbot. This one ships the things 
 ## 3. Requirements mapping (Loopp spec → this design)
 | Loopp asks for | This design delivers |
 |---|---|
-| Mock CRM (15 profiles) + strict policy doc | `lib/crm` seed (15 profiles) + `lib/agent/policy.ts` (versioned policy as data) |
+| Mock CRM (15 profiles) + strict policy doc | `lib/crm` seed (16 profiles: 15 policy-matrix + 1 high-value HITL demo) + `lib/agent/policy.ts` (versioned policy as data) |
 | Agent loop w/ dynamic tool calls | Vercel AI SDK v6 `streamText` + Zod tools, `stopWhen(hasToolCall('decide_refund'))` |
 | Bonus: voice pipeline | Browser mic → Deepgram STT → **same `/api/agent`** → Cartesia TTS |
 | Chat UI and/or voice component | Both: chat pane + mic component |

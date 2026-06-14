@@ -45,20 +45,20 @@ const VALID_FLAGS = new Set<OrderFlag>(["final_sale", "abuse_risk", "gift", "sub
 // ─── seed-integrity tests ──────────────────────────────────────────────────────
 
 describe("SEED_ORDERS — structural integrity", () => {
-  it("contains exactly 15 orders", () => {
-    expect(SEED_ORDERS).toHaveLength(15);
+  it("contains exactly 16 orders", () => {
+    expect(SEED_ORDERS).toHaveLength(16);
   });
 
   it("has unique customer_id values across all orders", () => {
     const ids = SEED_ORDERS.map((o) => o.customer_id);
     const unique = new Set(ids);
-    expect(unique.size).toBe(15);
+    expect(unique.size).toBe(16);
   });
 
   it("has unique order_id values across all orders", () => {
     const ids = SEED_ORDERS.map((o) => o.order_id);
     const unique = new Set(ids);
-    expect(unique.size).toBe(15);
+    expect(unique.size).toBe(16);
   });
 
   it("every order has a valid tier enum value", () => {
@@ -262,9 +262,9 @@ describe("MockCrmAdapter — adapter behaviour", () => {
     expect(order).toBeNull();
   });
 
-  it("getAllOrders() resolves to all 15 orders", async () => {
+  it("getAllOrders() resolves to all 16 orders", async () => {
     const orders = await crm.getAllOrders();
-    expect(orders).toHaveLength(15);
+    expect(orders).toHaveLength(16);
   });
 
   it("getAllOrders() returns a stable snapshot (same length on repeated calls)", async () => {

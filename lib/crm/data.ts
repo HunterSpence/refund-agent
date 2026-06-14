@@ -321,4 +321,26 @@ export const SEED_ORDERS: Order[] = [
     flags: ["abuse_risk"],
   },
   // INTENDED: DENY — §2.6 abuse_risk flag OR priors ≥3 → deny; also §2.1 window exceeded (67 days)
+
+  // ─── C016 ───────────────────────────────────────────────────────────────────
+  {
+    customer_id: "C016",
+    name: "Mateo",
+    tier: "regular",
+    order_id: "ORD-6700",
+    item: 'Pro Laptop 16"',
+    category: "electronics",
+    price: 1499.00,
+    order_date: "2026-06-01",
+    delivery_date: "2026-06-05",
+    return_request_date: "2026-06-12", // 7 days — in-window
+    condition: "unopened",
+    damage_source: null,
+    reason_for_return: "changed mind",
+    prior_refund_count: 0,
+    flags: [],
+  },
+  // INTENDED: APPROVE full $1499 — unopened, in-window (§2.3); priors 0 so no §2.9
+  // high-value escalation. Refund > $500 → triggers the human-in-the-loop ApprovalCard
+  // (high-value payout requires manual sign-off). Demo seed for that flow.
 ];

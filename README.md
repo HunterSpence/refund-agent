@@ -128,7 +128,7 @@ export interface CrmAdapter {
 }
 ```
 
-The agent, tools, and policy engine depend only on this interface. To connect Shopify, Zendesk, or Salesforce: implement `CrmAdapter`, swap the singleton in `lib/crm/client.ts`. One line change. The in-memory seed has 15 profiles (C001–C015) covering all policy branches.
+The agent, tools, and policy engine depend only on this interface. To connect Shopify, Zendesk, or Salesforce: implement `CrmAdapter`, swap the singleton in `lib/crm/client.ts`. One line change. The in-memory seed has 16 profiles (C001–C016): 15 covering every policy branch, plus one high-value order (C016, a $1,499 laptop) that demonstrates the >$500 human-in-the-loop ApprovalCard.
 
 ### Observability
 

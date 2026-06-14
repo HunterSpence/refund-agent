@@ -54,6 +54,30 @@ import { createTools, type AgentSession } from "@/lib/agent/tools";
 import { POLICY, type RefundPolicy } from "@/lib/agent/policy";
 import type { TraceEvent, TraceEventType, Decision, RefundOutcome } from "@/lib/types";
 
+// ─── Observability gate ────────────────────────────────────────────────────────
+//
+// Langfuse-ready OpenTelemetry telemetry, gated on environment credentials.
+//
+// When LANGFUSE_PUBLIC_KEY + LANGFUSE_SECRET_KEY are both absent (CI, local dev
+// without a Langfuse project) the AI SDK treats isEnabled:false as a total no-op:
+// no spans are emitted, no OTel exporter is required, and agent behaviour is
+// identical. Activating production tracing requires two steps only:
+//   1. Set LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY in the environment.
+//   2. Register a LangfuseExporter as the global OTel exporter in
+//      `instrumentation.ts` (see README § Observability for the exact snippet).
+// Zero changes to agent logic are needed — this hook fires automatically.
+
+/**
+ * Telemetry is enabled only when Langfuse credentials are present in the
+ * environment. Absent creds → complete no-op (the AI SDK emits no spans and
+ * requires no OTel exporter). Flipping LANGFUSE_PUBLIC_KEY + LANGFUSE_SECRET_KEY
+ * (and registering the LangfuseExporter in instrumentation.ts — see README)
+ * lights up full tracing with ZERO change to agent logic.
+ */
+export function isTelemetryEnabled(): boolean {
+  return Boolean(process.env.LANGFUSE_PUBLIC_KEY && process.env.LANGFUSE_SECRET_KEY);
+}
+
 // ─── Public types ─────────────────────────────────────────────────────────────
 
 /**
@@ -250,6 +274,16 @@ export function orchestrate(opts: OrchestrateOptions) {
 
     // prepareStep enforces the mandatory tool sequence at the LLM call level.
     prepareStep,
+
+    // Langfuse-ready OTel telemetry — complete no-op when creds are absent.
+    // isEnabled reads the env gate at call time so tests can toggle it freely.
+    // Activation: set LANGFUSE_PUBLIC_KEY + LANGFUSE_SECRET_KEY and register a
+    // LangfuseExporter in instrumentation.ts (see README § Observability).
+    experimental_telemetry: {
+      isEnabled: isTelemetryEnabled(),
+      functionId: "refund-agent-orchestrate",
+      metadata: { sessionId },
+    },
 
     // onStepFinish — fires after each complete step (tool call + result pair).
     // This is where we translate AI SDK step data into TraceEvents.

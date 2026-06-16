@@ -36,7 +36,7 @@ import { DefaultChatTransport } from "ai";
 import { useMemo } from "react";
 
 import type { RefundUIMessage } from "@/lib/agent/orchestrate";
-import type { TraceEvent } from "@/lib/types";
+import type { TraceEvent, RefundOutcome } from "@/lib/types";
 import { SEED_ORDERS } from "@/lib/crm/data";
 import { ChatWindow } from "@/components/ChatWindow";
 import { ReasoningPanel } from "@/components/ReasoningPanel";
@@ -201,6 +201,40 @@ export default function HomePage() {
     return undefined;
   }, [messages]);
 
+  // Build a short, speakable sentence from the latest decision outcome (for TTS).
+  // The reasoning card renders the decision visually; this gives the voice path an
+  // actual spoken sentence to read back.
+  const spokenSummary = useMemo<string | undefined>(() => {
+    for (let i = traces.length - 1; i >= 0; i--) {
+      const ev = traces[i];
+      if (ev.type === "tool_result" && ev.data.tool_name === "decide_refund") {
+        const o = ev.data.tool_result as Partial<RefundOutcome> | null;
+        if (!o || typeof o.decision !== "string") return undefined;
+        const reason = (o.reason ?? "")
+          .replace(/§/g, "section ")
+          .replace(/[()]/g, "")
+          .trim();
+        if (o.decision === "approve") {
+          const amt = typeof o.amount === "number" ? ` for $${o.amount.toFixed(2)}` : "";
+          return `Refund approved${amt}. ${reason}`.trim();
+        }
+        if (o.decision === "deny") return `Refund denied. ${reason}`.trim();
+        return `This one needs a human review. ${reason}`.trim();
+      }
+    }
+    return undefined;
+  }, [traces]);
+
+  // Changes once per completed decision (latest decision trace id) — drives TTS so
+  // each new decision is spoken even when its wording repeats. Covers both the
+  // normal decide_refund path and the guard-escalate path.
+  const speakKey = useMemo<string | undefined>(() => {
+    for (let i = traces.length - 1; i >= 0; i--) {
+      if (traces[i].type === "decision") return traces[i].id;
+    }
+    return undefined;
+  }, [traces]);
+
   const isLoading = status === "submitted" || status === "streaming";
 
   function handleSend(text: string) {
@@ -232,7 +266,8 @@ export default function HomePage() {
         {/* Voice input toggle — Web Speech default, keyless */}
         <VoiceButton
           onTranscript={handleSend}
-          speakText={latestAssistantText}
+          speakText={latestAssistantText ?? spokenSummary}
+          speakKey={speakKey}
           disabled={isLoading}
         />
 

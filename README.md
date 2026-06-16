@@ -166,7 +166,7 @@ A `Makefile` wraps these: `make install`, `make dev`, `make seed`, `make test`, 
 
 ## Voice
 
-Voice is the optional bonus, implemented **browser-native** rather than via a hosted realtime pipeline (OpenAI Realtime / ElevenLabs / LiveKit). The default voice path uses the Web Speech API (no keys needed): `SpeechRecognition` captures speech and fires `sendMessage({text})` to the same `/api/agent` endpoint; `speechSynthesis` speaks the assistant reply. Toggle via the mic button in `components/VoiceButton.tsx`.
+Voice is the optional bonus, implemented **browser-native** rather than via a hosted realtime pipeline (OpenAI Realtime / ElevenLabs / LiveKit). The default voice path uses the Web Speech API (no keys needed): `SpeechRecognition` captures speech and fires `sendMessage({text})` to the same `/api/agent` endpoint; `speechSynthesis` speaks the agent's decision back aloud. Toggle via the mic button in `components/VoiceButton.tsx`.
 
 The production upgrade path uses server-minted ephemeral tokens: `/api/deepgram-token` (Nova-2 STT) and `/api/cartesia-token` (Sonic TTS). Both routes return `501 Not Configured` when the corresponding keys are absent, so the Web Speech fallback remains active.
 

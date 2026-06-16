@@ -97,16 +97,21 @@ interface SpeechWindow {
 interface VoiceButtonProps {
   /** Called with the final transcript text from STT. Wire to handleSend. */
   onTranscript: (text: string) => void;
-  /** The latest assistant reply text. When this string changes the component
-   *  will speak it aloud via TTS. Pass undefined or "" to suppress speech. */
+  /** The text to speak aloud via TTS (the agent's latest decision / reply). */
   speakText?: string;
+  /**
+   * A value that changes once per completed decision (e.g. the latest decision
+   * trace id). TTS fires when this changes — so a brand-new decision is always
+   * spoken, even when its wording is identical to the previous one.
+   */
+  speakKey?: string | number;
   /** Disable while the agent is processing a request. */
   disabled?: boolean;
 }
 
 // ─── VoiceButton ─────────────────────────────────────────────────────────────
 
-export function VoiceButton({ onTranscript, speakText, disabled }: VoiceButtonProps) {
+export function VoiceButton({ onTranscript, speakText, speakKey, disabled }: VoiceButtonProps) {
   const [listening, setListening] = useState(false);
   const [supported, setSupported] = useState(true); // optimistic; corrected in effect
   const recognizerRef = useRef<MinimalSpeechRecognition | null>(null);
@@ -134,13 +139,15 @@ export function VoiceButton({ onTranscript, speakText, disabled }: VoiceButtonPr
   useEffect(() => {
     if (!hasUsedVoice.current) return;
     if (!speakText || typeof window === "undefined" || !window.speechSynthesis) return;
-    // Cancel any in-progress speech before speaking the new text
+    // Cancel any in-progress speech before speaking the new reply.
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(speakText);
-    // Slightly slower rate feels more natural for a support-agent persona
+    // Slightly slower rate feels more natural for a support-agent persona.
     utterance.rate = 0.95;
     window.speechSynthesis.speak(utterance);
-  }, [speakText]);
+    // Keyed on speakKey (the decision id) so each new decision is spoken even when
+    // its wording matches the previous one.
+  }, [speakText, speakKey]);
 
   // ── Cleanup: stop recognition on unmount ────────────────────────────────
   useEffect(() => {

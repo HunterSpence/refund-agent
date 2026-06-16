@@ -231,9 +231,23 @@ export async function POST(req: Request): Promise<Response> {
   const messages = raw.messages as RefundUIMessage[];
 
   for (const msg of messages) {
+    // Defensive shape validation — a malformed entry yields a 400, never a 500.
+    if (
+      typeof msg !== "object" ||
+      msg === null ||
+      !Array.isArray((msg as { parts?: unknown }).parts)
+    ) {
+      return Response.json({ error: "bad_request" }, { status: 400 });
+    }
     if (msg.role !== "user") continue;
     for (const part of msg.parts) {
-      if (part.type === "text" && part.text.length > MAX_USER_TEXT_CHARS) {
+      if (
+        typeof part === "object" &&
+        part !== null &&
+        (part as { type?: unknown }).type === "text" &&
+        typeof (part as { text?: unknown }).text === "string" &&
+        (part as { text: string }).text.length > MAX_USER_TEXT_CHARS
+      ) {
         return Response.json({ error: "bad_request" }, { status: 400 });
       }
     }

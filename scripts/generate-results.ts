@@ -19,7 +19,7 @@ writeFileSync(outputPath, JSON.stringify(report, null, 2) + "\n", "utf-8");
 
 console.log(`✓ results.json written to ${outputPath}`);
 console.log(`  accuracy        : ${report.metrics.accuracy.toFixed(4)}`);
-console.log(`  guardPrecision  : ${report.metrics.guardPrecision.toFixed(4)}`);
+console.log(`  guardRecall  : ${report.metrics.guardRecall.toFixed(4)}`);
 console.log(`  policyViolations: ${report.metrics.policyViolations}`);
 console.log(`  passedCubed     : ${report.metrics.passedCubed.toFixed(4)}`);
 console.log(`  passed/total    : ${report.metrics.passed}/${report.metrics.total}`);

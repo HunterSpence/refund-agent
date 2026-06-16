@@ -3,7 +3,7 @@
   "policy_version": "1.3",
   "metrics": {
     "accuracy": 1,
-    "guardPrecision": 1,
+    "guardRecall": 1,
     "policyViolations": 0,
     "passedCubed": 1,
     "total": 23,

@@ -75,7 +75,7 @@ jobs:
       #
       # The eval gate (tests/eval.test.ts) asserts:
       #   accuracy === 1.0  (all 23 scenarios correct)
-      #   guardPrecision === 1.0  (all injections caught)
+      #   guardRecall === 1.0  (all injections caught)
       #   policyViolations === 0  (zero adversarial slippage)
       #   passedCubed === 1.0  (deterministic, 3× stable)
       #

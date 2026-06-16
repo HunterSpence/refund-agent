@@ -63,7 +63,7 @@ The tool sequence (`crm_lookup → policy_check → decide_refund`) is enforced 
 
 ### Hard tool sequencing
 
-`prepareStep` in `orchestrate.ts` returns a different `activeTools` array and `toolChoice` constraint for each step number (0, 1, 2+). On step 0 the only callable tool is `crm_lookup`. On step 1, only `policy_check`. On step 2+, only `decide_refund`. The model cannot skip CRM lookup, cannot call decide_refund first, and cannot loop back. The sequencing is proven by the eval harness: every run across all 23 scenarios follows the mandatory path.
+`prepareStep` in `orchestrate.ts` returns a different `activeTools` array and `toolChoice` constraint for each step number (0, 1, 2+). On step 0 the only callable tool is `crm_lookup`. On step 1, only `policy_check`. On step 2+, only `decide_refund`. The model cannot skip CRM lookup, cannot call decide_refund first, and cannot loop back. The mandatory path is asserted by the mock-model tests in `tests/orchestrate.test.ts`; the deterministic eval separately proves the policy spine those steps drive.
 
 ### Injection guard as middleware
 
@@ -79,7 +79,7 @@ Social engineering (legal threats, "I am the CEO") is deliberately not blocked b
 |---|---|
 | Decision accuracy | 100% (23/23) |
 | Policy violations | 0 |
-| Guard precision | 100% (all 3 injections caught) |
+| Injection recall | 100% (all 3 injections caught pre-loop, 0 false positives on real-customer scenarios) |
 | pass³ stability | 100% (3× deterministic) |
 | Override rate | ~13% (oracle corrected model on adversarial cases) |
 
@@ -116,7 +116,7 @@ Swap the config object; the engine, the system prompt (via `policyText()`), and 
 
 ### Human-in-the-loop escalation
 
-Orders over $500 trigger an `ApprovalCard` in the UI (`components/ApprovalCard.tsx`) that requires explicit human approval before the outcome is acted on. The confidence floor (`0.65` in `POLICY`) independently forces `escalate` when the model is uncertain, regardless of what the oracle decided.
+Orders over $500 trigger an `ApprovalCard` in the UI (`components/ApprovalCard.tsx`) that requires explicit human approval in the UI before the payout is released — this demonstrates the approval gate; wiring it to a real payout processor is the production step. The confidence floor (`0.65` in `POLICY`) independently forces `escalate` when the model is uncertain, regardless of what the oracle decided.
 
 ### CRM adapter seam
 
@@ -166,7 +166,7 @@ A `Makefile` wraps these: `make install`, `make dev`, `make seed`, `make test`, 
 
 ## Voice
 
-The default voice path uses the Web Speech API (browser-native, no keys needed): `SpeechRecognition` captures speech and fires `sendMessage({text})` to the same `/api/agent` endpoint; `speechSynthesis` speaks the assistant reply. Toggle via the mic button in `components/VoiceButton.tsx`.
+Voice is the optional bonus, implemented **browser-native** rather than via a hosted realtime pipeline (OpenAI Realtime / ElevenLabs / LiveKit). The default voice path uses the Web Speech API (no keys needed): `SpeechRecognition` captures speech and fires `sendMessage({text})` to the same `/api/agent` endpoint; `speechSynthesis` speaks the assistant reply. Toggle via the mic button in `components/VoiceButton.tsx`.
 
 The production upgrade path uses server-minted ephemeral tokens: `/api/deepgram-token` (Nova-2 STT) and `/api/cartesia-token` (Sonic TTS). Both routes return `501 Not Configured` when the corresponding keys are absent, so the Web Speech fallback remains active.
 

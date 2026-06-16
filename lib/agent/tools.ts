@@ -20,7 +20,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 import { crm } from "@/lib/crm/client";
-import { evaluatePolicy, applyRefundPolicy } from "@/lib/agent/policy";
+import { evaluatePolicy, applyRefundPolicy, POLICY, type RefundPolicy } from "@/lib/agent/policy";
 import type { Order } from "@/lib/types";
 
 // ─── Session context ──────────────────────────────────────────────────────────
@@ -49,7 +49,7 @@ export interface AgentSession {
  *
  * @param session - The mutable session context for this run.
  */
-export function createTools(session: AgentSession) {
+export function createTools(session: AgentSession, policy: RefundPolicy = POLICY) {
   // ── crm_lookup ──────────────────────────────────────────────────────────────
   /**
    * Step 1 in the mandatory tool sequence.
@@ -87,9 +87,10 @@ export function createTools(session: AgentSession) {
    * Runs the deterministic policy oracle against the order and returns the
    * authoritative PolicyEvaluation (decision, amount, fee, reason, clauses).
    *
-   * Prefers session.order if already populated by crm_lookup; falls back to a
-   * fresh CRM lookup so the tool remains functional even if the LLM skips
-   * crm_lookup (the fallback also updates session.order for decide_refund).
+   * Uses session.order — the order LOCKED IN by crm_lookup. A different order_id
+   * supplied here is deliberately ignored, so the decision cannot be retargeted to
+   * another customer's order mid-loop. Only falls back to a fresh CRM lookup when
+   * crm_lookup was skipped entirely (session.order still null).
    *
    * Returns:
    *   PolicyEvaluation                 — oracle decision; use this to inform decide_refund.
@@ -107,9 +108,13 @@ export function createTools(session: AgentSession) {
         .describe("The order_id to evaluate — must match the id used in crm_lookup."),
     }),
     execute: async ({ order_id }) => {
-      // Use cached session order if available; otherwise fetch and cache.
+      // ORDER LOCK: once crm_lookup populates session.order, that order is
+      // authoritative for the rest of the loop. If the model supplies a DIFFERENT
+      // order_id here, we ignore it and evaluate the locked order — the decision
+      // cannot be retargeted to another customer's order mid-loop. We only fetch as
+      // a fallback when crm_lookup was skipped (prepareStep normally prevents that).
       let order = session.order;
-      if (order === null || order.order_id !== order_id) {
+      if (order === null) {
         const fetched = await crm.getOrder(order_id);
         if (fetched === null) {
           return { error: "order not found" as const };
@@ -117,7 +122,7 @@ export function createTools(session: AgentSession) {
         session.order = fetched;
         order = fetched;
       }
-      return evaluatePolicy(order);
+      return evaluatePolicy(order, policy);
     },
   });
 
@@ -181,6 +186,7 @@ export function createTools(session: AgentSession) {
       return applyRefundPolicy(
         { decision, reason, confidence, proposed_amount },
         session.order,
+        policy,
       );
     },
   });

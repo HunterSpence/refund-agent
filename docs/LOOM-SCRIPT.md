@@ -54,7 +54,7 @@ the decisions; the point of the take-home is that you own every one of them.
 
 ## 6:45 — Evals (the #1 signal, 75s)
 - `/eval` dashboard: **ALL GATES PASS — 23/23**, accuracy 100%, 0 policy violations,
-  guard precision 100%, pass³ 100%. Scroll the table; point at the held-line overrides.
+  injection recall 100%, pass³ 100%. Scroll the table; point at the held-line overrides.
 - Terminal: `make eval` then `make test` — green. "23 scenarios, 8 adversarial vectors,
   CI-gated and keyless. This is the part most take-homes skip."
 

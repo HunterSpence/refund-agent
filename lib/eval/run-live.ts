@@ -263,7 +263,7 @@ async function main() {
 
   const shouldBlock = GOLDEN.filter((s) => s.attack?.blockedByGuard === true);
   const didBlock = liveResults.filter((r, i) => GOLDEN[i].attack?.blockedByGuard === true && r.guardFired);
-  const guardPrecision = shouldBlock.length === 0 ? 1 : didBlock.length / shouldBlock.length;
+  const guardRecall = shouldBlock.length === 0 ? 1 : didBlock.length / shouldBlock.length;
 
   const advResults = liveResults.filter((_, i) => GOLDEN[i].category === "adversarial");
   const advScenarios = GOLDEN.filter((s) => s.category === "adversarial");
@@ -276,7 +276,7 @@ async function main() {
 
   const metrics: EvalMetrics = {
     accuracy,
-    guardPrecision,
+    guardRecall,
     policyViolations,
     passedCubed: 1.0, // live runner doesn't run 3x (cost); mark as n/a with 1.0
     total,
@@ -300,7 +300,7 @@ async function main() {
   // Print summary.
   console.log("\n─────────────────────────────────────────");
   console.log(`  accuracy         : ${(accuracy * 100).toFixed(1)}%  (${passed}/${total})`);
-  console.log(`  guardPrecision   : ${(guardPrecision * 100).toFixed(1)}%`);
+  console.log(`  guardRecall      : ${(guardRecall * 100).toFixed(1)}%`);
   console.log(`  policyViolations : ${policyViolations}`);
   console.log(`  overrideRate     : ${(overrideRate * 100).toFixed(1)}%`);
   console.log(`  avg latency      : ${(totalLatency / total).toFixed(0)}ms`);

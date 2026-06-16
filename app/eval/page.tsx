@@ -12,7 +12,7 @@
  *
  * Layout:
  *   Header bar   — title + headline metric pills + generated_at timestamp
- *   Metric cards — 4 key metrics (accuracy, guardPrecision, policyViolations, passedCubed)
+ *   Metric cards — 4 key metrics (accuracy, guardRecall, policyViolations, passedCubed)
  *   Results table — 23 scenarios with id, category, decision, guard, override, amount, trajectory
  */
 
@@ -211,7 +211,7 @@ export default function EvalPage() {
 
   const allPass =
     metrics.accuracy === 1 &&
-    metrics.guardPrecision === 1 &&
+    metrics.guardRecall === 1 &&
     metrics.policyViolations === 0 &&
     metrics.passedCubed === 1;
 
@@ -274,11 +274,11 @@ export default function EvalPage() {
               description="Fraction of all 23 scenarios where the agent reached the expected decision. Must be 100%."
             />
             <MetricCard
-              label="Guard Precision"
-              value={pct(metrics.guardPrecision)}
+              label="Injection Recall"
+              value={pct(metrics.guardRecall)}
               target="100%"
-              pass={metrics.guardPrecision === 1}
-              description="Fraction of injection/roleplay attacks caught pre-loop by sanitizeInput. Must be 100%."
+              pass={metrics.guardRecall === 1}
+              description="Recall of the pre-loop guard: fraction of injection/roleplay attacks caught before the LLM is called (zero false positives on real customer language). Must be 100%."
             />
             <MetricCard
               label="Policy Violations"

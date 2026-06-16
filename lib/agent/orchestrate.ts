@@ -176,7 +176,7 @@ export function orchestrate(opts: OrchestrateOptions) {
   // policy_check and decide_refund read it. All three tools close over the same
   // reference — shared state without globals.
   const session: AgentSession = { order: null };
-  const tools = createTools(session);
+  const tools = createTools(session, opts.policy ?? POLICY);
 
   // Stable session id for trace correlation. Generate once per call.
   const sessionId = opts.sessionId ?? crypto.randomUUID();

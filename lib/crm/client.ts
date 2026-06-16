@@ -1,7 +1,7 @@
 /**
  * lib/crm/client.ts
  *
- * `MockCrmAdapter` — the in-memory CRM implementation backed by the 15-profile
+ * `MockCrmAdapter` — the in-memory CRM implementation backed by the 16-profile
  * seed in `data.ts`. Implements `CrmAdapter` with async signatures to mirror a
  * real networked CRM, but resolves synchronously (no I/O, no faults).
  *
@@ -37,7 +37,7 @@ export class MockCrmAdapter implements CrmAdapter {
   }
 
   /**
-   * Return all 15 seed orders as a shallow-copied array.
+   * Return all 16 seed orders as a shallow-copied array.
    * Spreading each order ensures mutations to returned objects do not affect
    * the internal index; spreading the array ensures push/pop on the returned
    * array does not affect `SEED_ORDERS`.

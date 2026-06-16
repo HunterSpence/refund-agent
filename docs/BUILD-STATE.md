@@ -41,7 +41,7 @@ RUN_LIVE_EVAL=1 pnpm vitest run tests/eval.live.test.ts   # regenerates lib/eval
 | 5 | Eval — `lib/eval/{golden,run,run-live}.ts`, `results.json`, `tests/eval.test.ts`, `app/eval/page.tsx`, `.github/workflows/ci.yml`, `scripts/generate-results.ts` | `f3afa20` |
 
 ### Eval headline (deterministic, committed `lib/eval/results.json`)
-**23 scenarios — 23/23 passed · decision accuracy 100% · 0 policy violations · pass³=100% · guard precision 100%** (3 adversarial cases overridden = the held line). 8 attack vectors covered: direct/indirect injection, roleplay, legal threat, authority claim, day-31 gaming, negative-amount, conflicting-data.
+**23 scenarios — 23/23 passed · decision accuracy 100% · 0 policy violations · pass³=100% · injection recall 100%** (3 adversarial cases overridden = the held line). 8 attack vectors covered: direct/indirect injection, roleplay, legal threat, authority claim, day-31 gaming, negative-amount, conflicting-data.
 
 ## The SPINE (what makes this top-1% — preserve)
 1. **LLM decides intent → pure `applyRefundPolicy()` computes the money.** The oracle is authoritative; the model's `proposed_amount` is ignored; `overridden` flags blocked over-approvals → **un-jailbreakable** (proven by the held-line tests + evals). Write this as the README ADR.

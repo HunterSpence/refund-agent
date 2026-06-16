@@ -1,8 +1,9 @@
 /**
  * lib/crm/data.ts
  *
- * The 15 canonical seed orders used by the mock CRM, the policy-engine evals,
- * and the UI scenario picker.
+ * The 16 canonical seed orders (C001–C016) used by the mock CRM, the policy-engine
+ * evals, and the UI scenario picker. The first 15 cover every policy branch; C016 is
+ * a high-value order that demonstrates the >$500 human-in-the-loop approval gate.
  *
  * Each entry carries a one-line reviewer comment (after the closing brace) that
  * states the INTENDED decision and the governing policy clause(s). These comments

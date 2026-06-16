@@ -45,7 +45,7 @@ export interface CrmAdapter {
    *   - The UI scenario picker to populate the order selector dropdown.
    *
    * A production implementation may limit or paginate this list; the mock
-   * always returns all 15 seed orders.
+   * always returns all 16 seed orders.
    */
   getAllOrders(): Promise<Order[]>;
 }

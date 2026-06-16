@@ -41,6 +41,7 @@ import { SEED_ORDERS } from "@/lib/crm/data";
 import { ChatWindow } from "@/components/ChatWindow";
 import { ReasoningPanel } from "@/components/ReasoningPanel";
 import { VoiceButton } from "@/components/VoiceButton";
+import { speak, unlockAudio } from "@/lib/voice/speak";
 
 // ─── Logo mark ───────────────────────────────────────────────────────────────
 
@@ -246,39 +247,13 @@ export default function HomePage() {
     setMessages([]);
   }
 
-  // Speak the latest decision on demand. Triggered by a direct button click (a
-  // user gesture), so playback can't be blocked by autoplay policy. Tries the
-  // Cartesia voice (/api/speak) and falls back to the browser voice on any error.
-  async function handleSpeak() {
+  // Speak the latest decision on demand (the speaker button). A direct click is a
+  // user gesture, so we unlock here, then route through the shared controller —
+  // which stops any in-progress clip first, so audio never plays on top of itself.
+  function handleSpeak() {
     if (!spokenSummary) return;
-    const fallback = () => {
-      if (typeof window === "undefined" || !window.speechSynthesis) return;
-      window.speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(spokenSummary);
-      u.rate = 0.95;
-      window.speechSynthesis.speak(u);
-    };
-    try {
-      const res = await fetch("/api/speak", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: spokenSummary }),
-      });
-      if (!res.ok) {
-        fallback();
-        return;
-      }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = new Audio(url);
-      a.onended = () => URL.revokeObjectURL(url);
-      await a.play().catch(() => {
-        URL.revokeObjectURL(url);
-        fallback();
-      });
-    } catch {
-      fallback();
-    }
+    unlockAudio();
+    void speak(spokenSummary);
   }
 
   return (

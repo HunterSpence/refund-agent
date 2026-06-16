@@ -246,6 +246,41 @@ export default function HomePage() {
     setMessages([]);
   }
 
+  // Speak the latest decision on demand. Triggered by a direct button click (a
+  // user gesture), so playback can't be blocked by autoplay policy. Tries the
+  // Cartesia voice (/api/speak) and falls back to the browser voice on any error.
+  async function handleSpeak() {
+    if (!spokenSummary) return;
+    const fallback = () => {
+      if (typeof window === "undefined" || !window.speechSynthesis) return;
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(spokenSummary);
+      u.rate = 0.95;
+      window.speechSynthesis.speak(u);
+    };
+    try {
+      const res = await fetch("/api/speak", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: spokenSummary }),
+      });
+      if (!res.ok) {
+        fallback();
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = new Audio(url);
+      a.onended = () => URL.revokeObjectURL(url);
+      await a.play().catch(() => {
+        URL.revokeObjectURL(url);
+        fallback();
+      });
+    } catch {
+      fallback();
+    }
+  }
+
   return (
     <div className="flex flex-col h-full min-h-0 bg-[var(--color-surface-base)]">
       {/* ─── Header ─────────────────────────────────────────────────────────── */}
@@ -270,6 +305,25 @@ export default function HomePage() {
           speakKey={speakKey}
           disabled={isLoading}
         />
+
+        {/* Hear the decision — direct-click playback, can't be blocked by autoplay */}
+        <button
+          onClick={handleSpeak}
+          disabled={!spokenSummary}
+          aria-label="Hear the decision"
+          title={spokenSummary ? "Hear the decision aloud" : "No decision yet"}
+          className={[
+            "flex items-center justify-center w-8 h-8 rounded-lg border transition-all flex-shrink-0",
+            "border-zinc-700 bg-zinc-900 text-zinc-400 hover:border-zinc-600 hover:text-zinc-300",
+            "focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950",
+            "disabled:opacity-40 disabled:cursor-not-allowed",
+          ].join(" ")}
+        >
+          <svg viewBox="0 0 16 16" fill="none" className="w-3.5 h-3.5" aria-hidden>
+            <path d="M8.5 2.5L4.5 5.5H2.5V10.5H4.5L8.5 13.5V2.5Z" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round" />
+            <path d="M11 5.5C11.6 6.2 12 7.05 12 8C12 8.95 11.6 9.8 11 10.5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+          </svg>
+        </button>
 
         {/* Reset — consistent h-8 height, focus ring */}
         <button

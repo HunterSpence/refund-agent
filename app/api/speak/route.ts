@@ -71,7 +71,9 @@ export async function POST(req: Request): Promise<Response> {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model_id: "sonic-2",
+        // sonic-turbo = Cartesia's low-latency model (snappier than sonic-2 for
+        // a one-shot spoken decision).
+        model_id: "sonic-turbo",
         transcript: text,
         voice: { mode: "id", id: voiceId },
         output_format: { container: "mp3", sample_rate: 44100, bit_rate: 128000 },

@@ -170,6 +170,8 @@ Voice is the optional bonus. **Input** uses the browser-native Web Speech API (`
 
 A `/api/deepgram-token` route is also scaffolded for a Deepgram Nova-2 STT upgrade. For a full real-time, interrupt-me, phone-style agent I'd run this through LiveKit (Agents + Deepgram STT + Cartesia TTS) on a persistent server — the same stack I operate in production — rather than a serverless request/response proxy; the proxy here is the right fit for one-shot spoken decisions.
 
+**Latency:** the live deployment runs the tool-routing model as Claude Haiku (`LLM_MODEL`) and Cartesia `sonic-turbo` to keep the spoken round-trip snappy. Because the deterministic oracle owns correctness, a faster routing model only changes latency, never a decision — so the demo optimizes for responsiveness without any risk to the outcome.
+
 ---
 
 ## Observability

@@ -7,14 +7,15 @@
  * ────────────────────────────────────────────────────────────────────────
  * STT: SpeechRecognition / webkitSpeechRecognition — fires onTranscript(text)
  *      on a final result, which the parent wires to sendMessage({ text }).
- * TTS: window.speechSynthesis.speak() — speaks the latest assistant reply
- *      when the `speakText` prop changes (undefined / empty = no speech).
+ * TTS: Cartesia Sonic via the /api/speak server proxy when CARTESIA_API_KEY is
+ *      configured (the key stays server-side; the browser only receives audio).
+ *      Falls back to window.speechSynthesis.speak() when Cartesia is absent or
+ *      errors. Fires when `speakKey` changes (one new decision = one spoken reply).
  *
- * PRODUCTION UPGRADE PATH (future, keys required)
+ * PRODUCTION UPGRADE PATH (further, keys required)
  * ─────────────────────────────────────────────────
  * Swap STT to Deepgram Nova-2 via /api/deepgram-token → WebSocket.
- * Swap TTS to Cartesia Sonic via /api/cartesia-token → WebSocket.
- * These routes are stubbed and 501 gracefully when keys are absent.
+ * TTS already runs on Cartesia Sonic via /api/speak when the key is set.
  *
  * SSR / BUILD SAFETY
  * ───────────────────
@@ -138,13 +139,57 @@ export function VoiceButton({ onTranscript, speakText, speakKey, disabled }: Voi
   // the principle that audio output should be opt-in.
   useEffect(() => {
     if (!hasUsedVoice.current) return;
-    if (!speakText || typeof window === "undefined" || !window.speechSynthesis) return;
-    // Cancel any in-progress speech before speaking the new reply.
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(speakText);
-    // Slightly slower rate feels more natural for a support-agent persona.
-    utterance.rate = 0.95;
-    window.speechSynthesis.speak(utterance);
+    if (!speakText || typeof window === "undefined") return;
+
+    let cancelled = false;
+    let audioEl: HTMLAudioElement | null = null;
+
+    // Browser-native fallback — used when Cartesia isn't configured or errors,
+    // so voice-out always works (just with the OS voice instead of Sonic).
+    function fallbackSpeak() {
+      if (cancelled || !window.speechSynthesis) return;
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(speakText);
+      utterance.rate = 0.95;
+      window.speechSynthesis.speak(utterance);
+    }
+
+    // Cartesia Sonic first (server proxy at /api/speak — the API key stays
+    // server-side, the browser only ever receives audio). Any non-200 (e.g. 501
+    // when no key is configured) drops to the Web Speech fallback.
+    void (async () => {
+      try {
+        const res = await fetch("/api/speak", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: speakText }),
+        });
+        if (cancelled) return;
+        if (!res.ok) {
+          fallbackSpeak();
+          return;
+        }
+        const blob = await res.blob();
+        if (cancelled) return;
+        window.speechSynthesis?.cancel();
+        const url = URL.createObjectURL(blob);
+        audioEl = new Audio(url);
+        audioEl.addEventListener("ended", () => URL.revokeObjectURL(url));
+        await audioEl.play().catch(() => {
+          URL.revokeObjectURL(url);
+          fallbackSpeak();
+        });
+      } catch {
+        fallbackSpeak();
+      }
+    })();
+
+    // Cleanup: stop audio if a newer decision arrives or the component unmounts.
+    return () => {
+      cancelled = true;
+      audioEl?.pause();
+      window.speechSynthesis?.cancel();
+    };
     // Keyed on speakKey (the decision id) so each new decision is spoken even when
     // its wording matches the previous one.
   }, [speakText, speakKey]);

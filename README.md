@@ -166,11 +166,9 @@ A `Makefile` wraps these: `make install`, `make dev`, `make seed`, `make test`, 
 
 ## Voice
 
-Voice is the optional bonus, implemented **browser-native** rather than via a hosted realtime pipeline (OpenAI Realtime / ElevenLabs / LiveKit). The default voice path uses the Web Speech API (no keys needed): `SpeechRecognition` captures speech and fires `sendMessage({text})` to the same `/api/agent` endpoint; `speechSynthesis` speaks the agent's decision back aloud. Toggle via the mic button in `components/VoiceButton.tsx`.
+Voice is the optional bonus. **Input** uses the browser-native Web Speech API (`SpeechRecognition`) — speak a request and it fires `sendMessage({text})` to the same `/api/agent` endpoint. **Output** is **Cartesia Sonic** TTS: the agent's decision is spoken back through the `/api/speak` server proxy, so `CARTESIA_API_KEY` stays server-side and the browser only ever receives audio bytes. When no key is configured, output falls back to the browser's `speechSynthesis`, so voice still works keyless. Toggle via the mic button in `components/VoiceButton.tsx`.
 
-The production upgrade path uses server-minted ephemeral tokens: `/api/deepgram-token` (Nova-2 STT) and `/api/cartesia-token` (Sonic TTS). Both routes return `501 Not Configured` when the corresponding keys are absent, so the Web Speech fallback remains active.
-
-In a production deployment I'd run voice through LiveKit, mirroring the production voice-AI system I operate (LiveKit Agents 1.6 + Deepgram STT + Cartesia TTS). The token-route pattern here is the direct precursor to that architecture.
+A `/api/deepgram-token` route is also scaffolded for a Deepgram Nova-2 STT upgrade. For a full real-time, interrupt-me, phone-style agent I'd run this through LiveKit (Agents + Deepgram STT + Cartesia TTS) on a persistent server — the same stack I operate in production — rather than a serverless request/response proxy; the proxy here is the right fit for one-shot spoken decisions.
 
 ---
 

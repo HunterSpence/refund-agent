@@ -110,6 +110,13 @@ interface VoiceButtonProps {
   disabled?: boolean;
 }
 
+/** A tiny silent WAV used to "unlock" audio playback during the mic-click gesture,
+ *  so the agent's spoken reply can be played back later despite browser autoplay
+ *  policy (browsers block programmatic audio unless an element was first activated
+ *  by a genuine user gesture). */
+const SILENT_WAV =
+  "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
+
 // ─── VoiceButton ─────────────────────────────────────────────────────────────
 
 export function VoiceButton({ onTranscript, speakText, speakKey, disabled }: VoiceButtonProps) {
@@ -121,6 +128,10 @@ export function VoiceButton({ onTranscript, speakText, speakKey, disabled }: Voi
   // flag so the component never auto-speaks on page load — it only reads aloud
   // when the user has explicitly opted in to voice interaction.
   const hasUsedVoice = useRef(false);
+
+  // Reused <audio> element, created + unlocked on the mic-click gesture so the
+  // agent's Cartesia reply can be played back later despite autoplay policy.
+  const audioElRef = useRef<HTMLAudioElement | null>(null);
 
   // ── Feature detection (client-only, inside effect) ──────────────────────
   useEffect(() => {
@@ -142,7 +153,6 @@ export function VoiceButton({ onTranscript, speakText, speakKey, disabled }: Voi
     if (!speakText || typeof window === "undefined") return;
 
     let cancelled = false;
-    let audioEl: HTMLAudioElement | null = null;
 
     // Browser-native fallback — used when Cartesia isn't configured or errors,
     // so voice-out always works (just with the OS voice instead of Sonic).
@@ -173,9 +183,12 @@ export function VoiceButton({ onTranscript, speakText, speakKey, disabled }: Voi
         if (cancelled) return;
         window.speechSynthesis?.cancel();
         const url = URL.createObjectURL(blob);
-        audioEl = new Audio(url);
-        audioEl.addEventListener("ended", () => URL.revokeObjectURL(url));
-        await audioEl.play().catch(() => {
+        // Reuse the gesture-unlocked element so autoplay policy can't block it.
+        const a = audioElRef.current ?? new Audio();
+        audioElRef.current = a;
+        a.src = url;
+        a.onended = () => URL.revokeObjectURL(url);
+        await a.play().catch(() => {
           URL.revokeObjectURL(url);
           fallbackSpeak();
         });
@@ -187,7 +200,7 @@ export function VoiceButton({ onTranscript, speakText, speakKey, disabled }: Voi
     // Cleanup: stop audio if a newer decision arrives or the component unmounts.
     return () => {
       cancelled = true;
-      audioEl?.pause();
+      audioElRef.current?.pause();
       window.speechSynthesis?.cancel();
     };
     // Keyed on speakKey (the decision id) so each new decision is spoken even when
@@ -207,6 +220,22 @@ export function VoiceButton({ onTranscript, speakText, speakKey, disabled }: Voi
   // ── Toggle STT listening ─────────────────────────────────────────────────
   function handleToggle() {
     if (!supported || disabled) return;
+
+    // Opt into voice + UNLOCK audio playback inside this user gesture, so the
+    // agent's Cartesia reply can play back later. Browsers block programmatic
+    // audio unless an element was first activated by a genuine user gesture;
+    // playing a silent clip here "blesses" the reused element for that.
+    hasUsedVoice.current = true;
+    if (!audioElRef.current) audioElRef.current = new Audio();
+    try {
+      audioElRef.current.src = SILENT_WAV;
+      const unlock = audioElRef.current.play();
+      if (unlock && typeof unlock.then === "function") {
+        unlock.then(() => audioElRef.current?.pause()).catch(() => {});
+      }
+    } catch {
+      /* ignore — fallback paths still work */
+    }
 
     if (listening) {
       // Stop listening
@@ -255,8 +284,6 @@ export function VoiceButton({ onTranscript, speakText, speakKey, disabled }: Voi
 
     recognizerRef.current = rec;
     rec.start();
-    // Mark that the user has opted in to voice — enables TTS from this point on.
-    hasUsedVoice.current = true;
     setListening(true);
   }
 

@@ -102,6 +102,48 @@ describe("crm_lookup tool", () => {
 
     expect(session.order).toBeNull();
   });
+
+  it("resolves by item_description when no order_id is given (voice path)", async () => {
+    // Customer speaks a request with no order number — the agent resolves the
+    // order from the item description and primes the session, exactly as the
+    // order_id path does, so policy_check / decide_refund run unchanged.
+    const session = makeSession();
+    const { crm_lookup } = createTools(session);
+
+    const result = await exec(crm_lookup, { item_description: "I'd like to return my yoga mat" });
+
+    expect(result.found).toBe(true);
+    if (!result.found) throw new Error("unreachable — narrowing");
+    expect(result.order.order_id).toBe("ORD-1002");
+    expect(result.order.item).toBe("Yoga Mat");
+    expect(session.order?.order_id).toBe("ORD-1002");
+  });
+
+  it("returns found:false when an item_description matches nothing", async () => {
+    const session = makeSession();
+    const { crm_lookup } = createTools(session);
+
+    const result = await exec(crm_lookup, { item_description: "a flux capacitor" });
+
+    expect(result.found).toBe(false);
+    expect(session.order).toBeNull();
+  });
+
+  it("prefers a valid order_id over item_description", async () => {
+    // Both supplied: the explicit order id wins (ORD-1042 Alice), not the item.
+    const session = makeSession();
+    const { crm_lookup } = createTools(session);
+
+    const result = await exec(crm_lookup, {
+      order_id: "ORD-1042",
+      item_description: "yoga mat",
+    });
+
+    expect(result.found).toBe(true);
+    if (!result.found) throw new Error("unreachable — narrowing");
+    expect(result.order.order_id).toBe("ORD-1042");
+    expect(result.order.name).toBe("Alice");
+  });
 });
 
 // ─── policy_check ─────────────────────────────────────────────────────────────

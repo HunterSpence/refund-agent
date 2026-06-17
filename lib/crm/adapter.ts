@@ -48,4 +48,18 @@ export interface CrmAdapter {
    * always returns all 16 seed orders.
    */
   getAllOrders(): Promise<Order[]>;
+
+  /**
+   * Resolve an order from a free-text item description when the customer did
+   * NOT provide an order id — e.g. "my yoga mat", "the headphones I bought".
+   * Returns `null` if no order's item matches.
+   *
+   * This powers the voice/chat path where a customer simply says what they want
+   * to return. The agent extracts the item phrase (intent) and this method maps
+   * it to a concrete order (data) — keeping the "LLM decides intent, code
+   * resolves the record" separation. A production adapter would scope this to
+   * the authenticated customer's own orders (e.g. Shopify customer order list);
+   * the mock matches across the seed by item name.
+   */
+  findOrderByItem(query: string): Promise<Order | null>;
 }

@@ -63,20 +63,47 @@ export function createTools(session: AgentSession, policy: RefundPolicy = POLICY
    */
   const crm_lookup = tool({
     description:
-      "STEP 1 (ALWAYS FIRST): Look up the customer's order by order_id in the CRM. " +
+      "STEP 1 (ALWAYS FIRST): Look up the customer's order in the CRM. " +
+      "Pass `order_id` when the customer gave an order number (e.g. 'ORD-1042'). " +
+      "When they did NOT give an order number but described the item they want to " +
+      "return (e.g. 'my yoga mat', 'the headphones'), pass that text as " +
+      "`item_description` and the CRM will find their order by item. " +
       "You MUST call this before policy_check or decide_refund.",
     inputSchema: z.object({
       order_id: z
         .string()
-        .describe("The order identifier provided by the customer, e.g. 'ORD-1042'."),
+        .optional()
+        .describe("The order identifier, if the customer provided one, e.g. 'ORD-1042'."),
+      item_description: z
+        .string()
+        .optional()
+        .describe(
+          "What the customer says they want to return when no order number was given, " +
+            "e.g. 'yoga mat', 'my bluetooth headphones'. Used to resolve their order by item.",
+        ),
     }),
-    execute: async ({ order_id }) => {
-      const order = await crm.getOrder(order_id);
-      if (order === null) {
-        return { found: false as const, order_id };
+    execute: async ({ order_id, item_description }) => {
+      // 1. Prefer an explicit order_id when present and resolvable.
+      if (order_id) {
+        const order = await crm.getOrder(order_id);
+        if (order !== null) {
+          session.order = order;
+          return { found: true as const, order };
+        }
       }
-      session.order = order;
-      return { found: true as const, order };
+      // 2. Fall back to resolving from the customer's item description.
+      if (item_description) {
+        const order = await crm.findOrderByItem(item_description);
+        if (order !== null) {
+          session.order = order;
+          return { found: true as const, order };
+        }
+      }
+      return {
+        found: false as const,
+        order_id: order_id ?? null,
+        item_description: item_description ?? null,
+      };
     },
   });
 

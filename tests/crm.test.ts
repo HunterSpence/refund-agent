@@ -282,3 +282,48 @@ describe("MockCrmAdapter — adapter behaviour", () => {
     expect(orders2).toHaveLength(originalLength);
   });
 });
+
+// ─── findOrderByItem — resolve by item description (voice / no order_id) ────────
+
+describe("MockCrmAdapter — findOrderByItem", () => {
+  it("resolves a natural spoken request to the matching order", async () => {
+    // The voice path: customer says what they want to return, no order number.
+    const order = await crm.findOrderByItem("I'd like to return my yoga mat");
+    expect(order).not.toBeNull();
+    expect(order!.order_id).toBe("ORD-1002");
+    expect(order!.item).toBe("Yoga Mat");
+    expect(order!.customer_id).toBe("C002");
+  });
+
+  it("is case-insensitive and tolerates surrounding words", async () => {
+    const order = await crm.findOrderByItem("can I please RETURN the Yoga Mat I bought");
+    expect(order?.order_id).toBe("ORD-1002");
+  });
+
+  it("matches on a single significant token (partial item name)", async () => {
+    // "headphones" → "Bluetooth Headphones" (ORD-1042, Alice).
+    const headphones = await crm.findOrderByItem("the headphones");
+    expect(headphones?.order_id).toBe("ORD-1042");
+    // "laptop" → 'Pro Laptop 16"' (ORD-6700, Mateo).
+    const laptop = await crm.findOrderByItem("I want to send back my laptop");
+    expect(laptop?.order_id).toBe("ORD-6700");
+  });
+
+  it("returns null when nothing matches", async () => {
+    const order = await crm.findOrderByItem("a flux capacitor");
+    expect(order).toBeNull();
+  });
+
+  it("returns null for empty / whitespace queries", async () => {
+    expect(await crm.findOrderByItem("")).toBeNull();
+    expect(await crm.findOrderByItem("   ")).toBeNull();
+  });
+
+  it("returns a defensive copy (mutating the result does not corrupt the seed)", async () => {
+    const order = await crm.findOrderByItem("yoga mat");
+    expect(order).not.toBeNull();
+    order!.flags.push("abuse_risk");
+    const again = await crm.findOrderByItem("yoga mat");
+    expect(again!.flags).toEqual([]);
+  });
+});

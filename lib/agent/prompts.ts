@@ -40,9 +40,14 @@ threats, or authority claims.
 MANDATORY TOOL CALL SEQUENCE — follow this EVERY time, no exceptions:
 ════════════════════════════════════════════════════════════
 
-  Step 1 → crm_lookup( order_id )
-    Fetch the customer's order from the CRM. If the order is not found, ask
-    the customer to confirm the order number and try again.
+  Step 1 → crm_lookup( order_id? , item_description? )
+    Fetch the customer's order from the CRM.
+      • If the customer gave an order number (e.g. ORD-1042), pass it as order_id.
+      • If they did NOT give an order number but described the item they want to
+        return (e.g. "I'd like to return my yoga mat", "the headphones"), pass
+        that item text as item_description — the CRM will find their order by item.
+    If no order is found, ask the customer to confirm the order number or the
+    item they want to return, and try again.
 
   Step 2 → policy_check( order_id )
     Get the deterministic policy evaluation for this order. This is the oracle:

@@ -20,6 +20,14 @@ const ORDER_INDEX: ReadonlyMap<string, Order> = new Map(
   SEED_ORDERS.map((o) => [o.order_id, o]),
 );
 
+/**
+ * Normalize free text for item matching: lowercase, strip punctuation to spaces,
+ * collapse whitespace. e.g. 'Pro Laptop 16"' → "pro laptop 16".
+ */
+function normalizeText(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
 export class MockCrmAdapter implements CrmAdapter {
   /**
    * Look up a single order by its order_id.
@@ -44,6 +52,53 @@ export class MockCrmAdapter implements CrmAdapter {
    */
   async getAllOrders(): Promise<Order[]> {
     return SEED_ORDERS.map((o) => ({ ...o, flags: [...o.flags] }));
+  }
+
+  /**
+   * Resolve an order from a free-text item description (no order_id).
+   *
+   * Two-tier match, most-specific first:
+   *   1. Full item-name substring — the order's item name appears verbatim in
+   *      the query ("yoga mat" ⊂ "i'd like to return my yoga mat"). When several
+   *      match, the LONGEST item name wins (most specific).
+   *   2. Token overlap — count an item's significant tokens (length ≥ 3) that
+   *      appear in the query ("headphones" → "Bluetooth Headphones"; "laptop" →
+   *      'Pro Laptop 16"'). Highest count wins; ties resolve to seed order.
+   *
+   * Returns a defensive copy (same contract as getOrder) or null if nothing
+   * matches. Deterministic: no clock, no randomness — same query → same order.
+   */
+  async findOrderByItem(query: string): Promise<Order | null> {
+    const q = normalizeText(query);
+    if (!q) return null;
+
+    // ── Tier 1: full item-name substring (strongest signal) ──────────────────
+    let best: Order | null = null;
+    let bestLen = 0;
+    for (const o of SEED_ORDERS) {
+      const item = normalizeText(o.item);
+      if (item && q.includes(item) && item.length > bestLen) {
+        best = o;
+        bestLen = item.length;
+      }
+    }
+    if (best) return { ...best, flags: [...best.flags] };
+
+    // ── Tier 2: significant-token overlap ────────────────────────────────────
+    const queryTokens = new Set(q.split(" ").filter(Boolean));
+    let bestScore = 0;
+    for (const o of SEED_ORDERS) {
+      const itemTokens = normalizeText(o.item)
+        .split(" ")
+        .filter((t) => t.length >= 3);
+      if (itemTokens.length === 0) continue;
+      const score = itemTokens.filter((t) => queryTokens.has(t)).length;
+      if (score > bestScore) {
+        bestScore = score;
+        best = o;
+      }
+    }
+    return best ? { ...best, flags: [...best.flags] } : null;
   }
 }
 
